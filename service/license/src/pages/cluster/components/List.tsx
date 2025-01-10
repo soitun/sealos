@@ -2,8 +2,8 @@ import { getClusterList } from '@/api/cluster';
 import { EmptyIcon, TimeIcon } from '@/components/Icon';
 import Pagination from '@/components/Pagination';
 import useClusterDetail from '@/stores/cluster';
-import { ClusterResult, ClusterType } from '@/types';
-import { formatTime } from '@/utils/tools';
+import { ThemeColors } from '@/styles/colors';
+import { ClusterType } from '@/types';
 import { Box, Center, Flex, Icon, Text } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'next-i18next';
@@ -33,12 +33,13 @@ export default function ClusterRecord() {
       pb="40px"
       px={{ base: '12px', md: '20px', lg: '42px' }}
       position={'relative'}
+      borderRight={'1px solid #E8EBF0'}
     >
       <Text mb="10px" color={'#262A32'} fontSize={'24px'} fontWeight={600} alignSelf={'flex-start'}>
         {t('Cluster List')}
       </Text>
       {data?.records && data?.records?.length > 0 ? (
-        <Box w="100%" flex={1} overflowY={'scroll'} pb="20px">
+        <Box w="100%" flex={1} overflowY={'scroll'} pb="20px" px="4px">
           {data?.records.map((item, i) => (
             <Flex
               key={item?.clusterId}
@@ -46,21 +47,23 @@ export default function ClusterRecord() {
               h="72px"
               alignItems={'center'}
               justifyContent={'center'}
-              border={
-                clusterDetail?.clusterId === item.clusterId
-                  ? '1px solid #36ADEF'
-                  : '1px solid #EFF0F1'
+              border={'1px solid'}
+              borderColor={
+                clusterDetail?.clusterId === item.clusterId ? 'brightBlue.500' : 'gray.200'
               }
-              borderRadius={'4px'}
+              boxShadow={
+                clusterDetail?.clusterId === item.clusterId ? ThemeColors.boxShadowBlue : ''
+              }
+              borderRadius={'8px'}
               background={'#F8FAFB'}
               mt="16px"
-              _hover={{ border: '1px solid #36ADEF' }}
+              _hover={{ borderColor: 'brightBlue.300' }}
               onClick={() => setClusterDetail(item)}
               px="24px"
               cursor={'pointer'}
             >
               <Flex w="100%" flexDirection={'column'}>
-                <Flex>
+                <Flex alignItems={'center'}>
                   <Text
                     color={'#485058'}
                     fontSize={'16px'}
@@ -74,25 +77,24 @@ export default function ClusterRecord() {
                   >
                     {item?.displayName ? item.displayName : `${t('Cluster')}`}
                   </Text>
-                  <Center
-                    bg={
-                      item.type === ClusterType.Standard
-                        ? 'rgba(0, 169, 166, 0.10)'
-                        : 'rgba(33, 155, 244, 0.10)'
-                    }
-                    color={item.type === ClusterType.Standard ? '#00A9A6' : '#219BF4'}
-                    borderRadius="4px"
-                    p="3px 8px"
-                    fontSize={'12px'}
-                    fontWeight={500}
-                  >
-                    {t(item.type)}
-                  </Center>
+                  <Text color={'#7B838B'} fontSize={'11px'} fontWeight={400}>
+                    集群ID: {item?.kubeSystemID ? item?.kubeSystemID : '未绑定'}
+                  </Text>
                 </Flex>
-                <Text mt="8px" color={'#7B838B'} fontSize={'11px'} fontWeight={400}>
-                  集群ID: {item?.kubeSystemID ? item?.kubeSystemID : '未绑定'}
-                  {/* {formatTime(item.createdAt, 'YYYY-MM-DD HH:mm')} */}
-                </Text>
+
+                {item?.cpu && (
+                  <Flex
+                    alignItems={'center'}
+                    fontSize={'10px'}
+                    fontWeight={500}
+                    color={'#667085'}
+                    gap={'16px'}
+                    mt={'9px'}
+                  >
+                    <Text>CPU: {item?.cpu} Core</Text>
+                    <Text>内存: {item?.memory} G</Text>
+                  </Flex>
+                )}
               </Flex>
               <Flex justifyContent={'center'} alignItems={'center'} ml="auto" flexShrink={0}>
                 {item?.kubeSystemID ? (

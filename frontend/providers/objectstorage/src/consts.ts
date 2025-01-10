@@ -9,7 +9,11 @@ export enum QueryKey {
   bucketInfo = 'bucketInfo',
   bucketUser = 'bucketUser',
   minioFileList = 'minioFileList',
-  minioBucketDetial = 'minioBucketDetial'
+  HostStatus = 'hostStatus',
+  openHost = 'openHost',
+  closeHost = 'closeHost',
+  minioBucketDetial = 'minioBucketDetial',
+  updateSecretKey = 'updateSecretKey'
 }
 export type FormSchema = {
   bucketAuthority: Authority;
@@ -94,7 +98,9 @@ export type UserCR = MinioGroup<
     name: string;
     namespace: string;
   },
-  never,
+  {
+    secretKeyVersion: number;
+  },
   {
     quota: number;
     size: number;
@@ -103,6 +109,7 @@ export type UserCR = MinioGroup<
     external: string;
     internal: string;
     secretKey: string;
+    secretKeyVersion: number;
   }
 >;
 
@@ -118,6 +125,8 @@ export type UserSecretData = {
   CONSOLE_SECRET_KEY: string;
   external: string;
   internal: string;
+  version: number;
+  specVersion: number;
 };
 export type QuotaData = {
   total: number;

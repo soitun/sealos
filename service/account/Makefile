@@ -43,7 +43,8 @@ clean:
 
 .PHONY: build
 build: ## Build service-hub binary.
-	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) go build $(GO_BUILD_FLAGS) -o bin/manager main.go
+	LD_FLAGS="-s -w"; \
+	CGO_ENABLED=0 GOOS=linux go build -tags=jsoniter -ldflags "$${LD_FLAGS}" -trimpath -o bin/manager main.go
 
 .PHONY: docker-build
 docker-build: build

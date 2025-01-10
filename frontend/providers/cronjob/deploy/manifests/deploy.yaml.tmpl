@@ -39,6 +39,12 @@ spec:
           env:
             - name: SEALOS_DOMAIN
               value: {{ .cloudDomain }}
+            - name: APPLAUNCHPAD_URL
+              value: applaunchpad.{{ .cloudDomain }}
+            - name: SUCCESSFUL_JOBS_HISTORY_LIMIT
+              value: "{{ .SUCCESSFUL_JOBS_HISTORY_LIMIT }}"
+            - name: FAILED_JOBS_HISTORY_LIMIT
+              value: "{{ .FAILED_JOBS_HISTORY_LIMIT }}"
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001
@@ -60,6 +66,18 @@ spec:
             - name: cronjob-frontend-volume
               mountPath: /config.yaml
               subPath: config.yaml
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: "app"
+                  operator: In
+                  values:
+                  - cronjob-frontend
+              topologyKey: "kubernetes.io/hostname"
       volumes:
         - name: cronjob-frontend-volume
           configMap:

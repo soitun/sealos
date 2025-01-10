@@ -15,12 +15,16 @@ const Empty = () => {
       flexDirection="column"
       alignItems="center"
       justifyContent="center"
-      bg={'#F3F4F5'}
+      backgroundColor={'white'}
+      px={'32px'}
+      h={'full'}
+      w={'full'}
+      borderRadius={'xl'}
     >
       <MyIcon name={'noEvents'} color={'transparent'} width={'80px'} height={'80px'} />
-      <Box py={8}>{t('DataBase Empty')}</Box>
-      <Button w={155} mt={5} variant={'primary'} onClick={() => router.push('/db/edit')}>
-        {t('Create DB')}
+      <Box py={8}>{t('database_empty')}</Box>
+      <Button w={155} mt={5} variant={'solid'} onClick={() => router.push('/db/edit')}>
+        {t('create_db')}
       </Button>
     </Box>
   );

@@ -1,14 +1,15 @@
 import { generatePaymentCrd, PaymentForm } from '@/constants/payment';
 import { authSession } from '@/service/backend/auth';
 import { ApplyYaml, GetUserDefaultNameSpace } from '@/service/backend/kubernetes';
+import { makeAPIClientByHeader } from '@/service/backend/region';
 import { jsonRes } from '@/service/backend/response';
-import { enableRecharge } from '@/service/enabled';
+import { checkSealosUserIsRealName } from '@/utils/tools';
 import crypto from 'crypto';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 export default async function handler(req: NextApiRequest, resp: NextApiResponse) {
   try {
-    if (!enableRecharge()) {
+    if (!global.AppConfig.costCenter.recharge.enabled) {
       throw new Error('recharge is not enabled');
     }
     if (req.method !== 'POST') {
@@ -21,6 +22,17 @@ export default async function handler(req: NextApiRequest, resp: NextApiResponse
       return jsonRes(resp, {
         code: 400,
         message: 'Amount cannot be less than 0'
+      });
+    }
+
+    const client = await makeAPIClientByHeader(req, resp);
+    if (!client) return;
+
+    const isRealName = await checkSealosUserIsRealName(client);
+    if (!isRealName) {
+      return jsonRes(resp, {
+        code: 403,
+        message: 'recharge is not allowed for non-real-name user'
       });
     }
 
@@ -38,7 +50,6 @@ export default async function handler(req: NextApiRequest, resp: NextApiResponse
 
     const paymentCrd = generatePaymentCrd(form);
     const res = await ApplyYaml(kc, paymentCrd);
-    console.log(res);
     return jsonRes(resp, {
       data: {
         paymentName: paymentName,

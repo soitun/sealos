@@ -44,7 +44,7 @@ on:
 
 env:
   # Common versions
-  GO_VERSION: "1.20"
+  GO_VERSION: "1.22"
   DEFAULT_OWNER: "labring"
   CRYPTOKEY: ${{ secrets.CONTROLLER_BUILD_CRYPTOKEY }}
   LICENSE_KEY: ${{ secrets.LICENSE_KEY }}
@@ -99,7 +99,7 @@ jobs:
           - { name: job-heartbeat, path: job/heartbeat }
           - { name: resources, path: resources }
           - { name: node, path: node }
-          - { name: admission, path: admission }
+          - { name: devbox, path: devbox}
           - { name: objectstorage, path: objectstorage }
     steps:
       - name: Checkout
@@ -183,6 +183,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
   save-sealos:
     uses: ./.github/workflows/import-save-sealos.yml
+    with:
+      artifact_name: sealos-controllers
   build-cluster-image:
     if: ${{ (github.event_name == 'push') ||(github.event_name == 'create') || (inputs.push_image == true)  }}
     needs:
@@ -202,7 +204,7 @@ jobs:
           - { name: job-heartbeat, path: job/heartbeat }
           - { name: resources, path: resources }
           - { name: node, path: node }
-          - { name: admission, path: admission }
+          - { name: devbox, path: devbox }
           - { name: objectstorage, path: objectstorage }
     steps:
       - name: Checkout
@@ -231,9 +233,9 @@ jobs:
           echo latest_cluster_image=ghcr.io/${{ github.repository_owner }}/sealos-cloud-${{ matrix.module.name }}-controller:latest >> $GITHUB_OUTPUT
 
       - name: Download sealos
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: sealos
+          name: sealos-controllers
           path: /tmp/
       - name: Verify sealos
         run: |

@@ -1,16 +1,15 @@
 import { postDeployApp, putApp } from '@/api/app';
-import { updateDesktopGuide } from '@/api/platform';
-import { noGpuSliderKey } from '@/constants/app';
+import { checkPermission } from '@/api/platform';
+import { defaultSliderKey } from '@/constants/app';
 import { defaultEditVal, editModeMap } from '@/constants/editApp';
 import { useConfirm } from '@/hooks/useConfirm';
 import useDriver from '@/hooks/useDriver';
 import { useLoading } from '@/hooks/useLoading';
-import { useToast } from '@/hooks/useToast';
 import { useAppStore } from '@/store/app';
 import { useGlobalStore } from '@/store/global';
 import { useUserStore } from '@/store/user';
 import type { YamlItemType } from '@/types';
-import type { AppEditType, DeployKindsType } from '@/types/app';
+import type { AppEditSyncedFields, AppEditType, DeployKindsType } from '@/types/app';
 import { adaptEditAppData } from '@/utils/adapt';
 import {
   json2ConfigMap,
@@ -32,6 +31,10 @@ import { useForm } from 'react-hook-form';
 import Form from './components/Form';
 import Header from './components/Header';
 import Yaml from './components/Yaml';
+import { useMessage } from '@sealos/ui';
+import { customAlphabet } from 'nanoid';
+
+const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz', 12);
 
 const ErrorModal = dynamic(() => import('./components/ErrorModal'));
 
@@ -44,9 +47,9 @@ export const formData2Yamls = (
     filename: 'service.yaml',
     value: json2Service(data)
   },
-  !!data.storeList?.length
+  data.kind === 'statefulset' || data.storeList?.length > 0
     ? {
-        filename: 'statefulSet.yaml',
+        filename: 'statefulset.yaml',
         value: json2DeployCr(data, 'statefulset')
       }
     : {
@@ -92,17 +95,18 @@ const EditApp = ({ appName, tabType }: { appName?: string; tabType: string }) =>
   const formOldYamls = useRef<YamlItemType[]>([]);
   const crOldYamls = useRef<DeployKindsType[]>([]);
   const oldAppEditData = useRef<AppEditType>();
-  const { toast } = useToast();
+  const { message: toast } = useMessage();
   const { Loading, setIsLoading } = useLoading();
   const router = useRouter();
   const [forceUpdate, setForceUpdate] = useState(false);
   const { setAppDetail } = useAppStore();
   const { screenWidth, formSliderListConfig } = useGlobalStore();
-  const { userSourcePrice, loadUserSourcePrice, checkQuotaAllow, balance } = useUserStore();
+  const { userSourcePrice, loadUserSourcePrice, checkQuotaAllow } = useUserStore();
   const { title, applyBtnText, applyMessage, applySuccess, applyError } = editModeMap(!!appName);
   const [yamlList, setYamlList] = useState<YamlItemType[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
   const [already, setAlready] = useState(false);
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [defaultStorePathList, setDefaultStorePathList] = useState<string[]>([]); // default store will no be edit
   const [defaultGpuSource, setDefaultGpuSource] = useState<AppEditType['gpu']>({
     type: '',
@@ -124,7 +128,7 @@ const EditApp = ({ appName, tabType }: { appName?: string; tabType: string }) =>
   const formHook = useForm<AppEditType>({
     defaultValues: defaultEditVal
   });
-  const { isGuided, closeGuide } = useDriver();
+  const { isGuided, closeGuide } = useDriver({ setIsAdvancedOpen });
 
   const realTimeForm = useRef(defaultEditVal);
 
@@ -154,12 +158,13 @@ const EditApp = ({ appName, tabType }: { appName?: string; tabType: string }) =>
     async (yamlList: YamlItemType[]) => {
       setIsLoading(true);
       try {
-        const yamls = yamlList.map((item) => item.value);
+        const parsedNewYamlList = yamlList.map((item) => item.value);
+
         if (appName) {
           const patch = patchYamlList({
-            formOldYamlList: formOldYamls.current.map((item) => item.value),
-            newYamlList: yamls,
-            crYamlList: crOldYamls.current
+            parsedOldYamlList: formOldYamls.current.map((item) => item.value),
+            parsedNewYamlList: parsedNewYamlList,
+            originalYamlList: crOldYamls.current
           });
           await putApp({
             patch,
@@ -167,20 +172,11 @@ const EditApp = ({ appName, tabType }: { appName?: string; tabType: string }) =>
             stateFulSetYaml: yamlList.find((item) => item.filename === 'statefulSet.yaml')?.value
           });
         } else {
-          await postDeployApp(yamls);
+          await postDeployApp(parsedNewYamlList);
         }
 
         router.replace(`/app/detail?name=${formHook.getValues('appName')}`);
-        if (!isGuided) {
-          updateDesktopGuide({
-            activityType: 'beginner-guide',
-            phase: 'launchpad',
-            phasePage: 'create',
-            shouldSendGift: true
-          }).catch((err) => {
-            console.log(err);
-          });
-        }
+
         toast({
           title: t(applySuccess),
           status: 'success'
@@ -205,14 +201,14 @@ const EditApp = ({ appName, tabType }: { appName?: string; tabType: string }) =>
       t,
       applySuccess,
       userSourcePrice?.gpu,
-      refetchPrice,
-      isGuided
+      refetchPrice
     ]
   );
+
   const submitError = useCallback(() => {
     // deep search message
     const deepSearch = (obj: any): string => {
-      if (!obj) return t('Submit Error');
+      if (!obj || typeof obj !== 'object') return t('Submit Error');
       if (!!obj.message) {
         return obj.message;
       }
@@ -233,8 +229,8 @@ const EditApp = ({ appName, tabType }: { appName?: string; tabType: string }) =>
       if (!appName) {
         const defaultApp = {
           ...defaultEditVal,
-          cpu: formSliderListConfig[noGpuSliderKey].cpu[0],
-          memory: formSliderListConfig[noGpuSliderKey].memory[0]
+          cpu: formSliderListConfig[defaultSliderKey].cpu[0],
+          memory: formSliderListConfig[defaultSliderKey].memory[0]
         };
         setAlready(true);
         setYamlList([
@@ -265,6 +261,7 @@ const EditApp = ({ appName, tabType }: { appName?: string; tabType: string }) =>
         setDefaultGpuSource(res.gpu);
         formHook.reset(adaptEditAppData(res));
         setAlready(true);
+        setYamlList(formData2Yamls(realTimeForm.current));
       },
       onError(err) {
         toast({
@@ -286,6 +283,43 @@ const EditApp = ({ appName, tabType }: { appName?: string; tabType: string }) =>
     }
   }, [router.query.name, tabType]);
 
+  useEffect(() => {
+    try {
+      console.log('edit page already', already, router.query);
+      if (!already) return;
+      const query = router.query as { formData?: string; name?: string };
+      if (!query.formData) return;
+
+      const parsedData: Partial<AppEditSyncedFields> = JSON.parse(
+        decodeURIComponent(query.formData)
+      );
+
+      const basicFields: (keyof AppEditSyncedFields)[] = router.query?.name
+        ? ['imageName', 'cpu', 'memory']
+        : ['imageName', 'replicas', 'cpu', 'memory', 'cmdParam', 'runCMD', 'appName', 'labels'];
+
+      basicFields.forEach((field) => {
+        if (parsedData[field] !== undefined) {
+          formHook.setValue(field, parsedData[field] as any);
+        }
+      });
+
+      if (Array.isArray(parsedData.networks)) {
+        const completeNetworks = parsedData.networks.map((network) => ({
+          networkName: network.networkName || `network-${nanoid()}`,
+          portName: network.portName || nanoid(),
+          port: network.port || 80,
+          protocol: network.protocol || 'HTTP',
+          openPublicDomain: network.openPublicDomain || false,
+          publicDomain: network.publicDomain || nanoid(),
+          customDomain: network.customDomain || '',
+          domain: network.domain || 'gzg.sealos.run'
+        }));
+        formHook.setValue('networks', completeNetworks);
+      }
+    } catch (error) {}
+  }, [router.query, already]);
+
   return (
     <>
       <Flex
@@ -293,7 +327,7 @@ const EditApp = ({ appName, tabType }: { appName?: string; tabType: string }) =>
         alignItems={'center'}
         h={'100%'}
         minWidth={'1024px'}
-        backgroundColor={'#F3F4F5'}
+        backgroundColor={'grayModern.100'}
       >
         <Header
           appName={formHook.getValues('appName')}
@@ -302,16 +336,9 @@ const EditApp = ({ appName, tabType }: { appName?: string; tabType: string }) =>
           applyBtnText={applyBtnText}
           applyCb={() => {
             closeGuide();
-            formHook.handleSubmit((data) => {
+            formHook.handleSubmit(async (data) => {
               const parseYamls = formData2Yamls(data);
               setYamlList(parseYamls);
-              // balance check
-              if (balance <= 0) {
-                return toast({
-                  status: 'warning',
-                  title: t('user.Insufficient account balance')
-                });
-              }
 
               // gpu inventory check
               if (data.gpu?.type) {
@@ -343,6 +370,26 @@ const EditApp = ({ appName, tabType }: { appName?: string; tabType: string }) =>
                 });
               }
 
+              // check permission
+              if (appName) {
+                try {
+                  const result = await checkPermission({
+                    appName: data.appName
+                  });
+                  if (result === 'insufficient_funds') {
+                    return toast({
+                      status: 'warning',
+                      title: t('user.Insufficient account balance')
+                    });
+                  }
+                } catch (error: any) {
+                  return toast({
+                    status: 'warning',
+                    title: error?.message || 'Check Error'
+                  });
+                }
+              }
+
               openConfirm(() => submitSuccess(parseYamls))();
             }, submitError)();
           }}
@@ -357,6 +404,7 @@ const EditApp = ({ appName, tabType }: { appName?: string; tabType: string }) =>
               countGpuInventory={countGpuInventory}
               pxVal={pxVal}
               refresh={forceUpdate}
+              isAdvancedOpen={isAdvancedOpen}
             />
           ) : (
             <Yaml yamlList={yamlList} pxVal={pxVal} />
@@ -388,10 +436,16 @@ export async function getServerSideProps(content: any) {
 export default EditApp;
 
 function checkNetworkPorts(networks: AppEditType['networks']) {
-  const ports = networks.map((item) => item.port);
-  const portSet = new Set(ports);
-  if (portSet.size !== ports.length) {
-    return false;
+  const portProtocolSet = new Set<string>();
+
+  for (const network of networks) {
+    const { port, protocol } = network;
+    const key = `${port}-${protocol}`;
+    if (portProtocolSet.has(key)) {
+      return false;
+    }
+    portProtocolSet.add(key);
   }
+
   return true;
 }

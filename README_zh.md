@@ -26,7 +26,7 @@
 
 </div>
 
-https://github.com/labring/sealos/assets/82700206/b1f8a25a-55cf-4d15-a47b-38cf7d507134
+https://github.com/user-attachments/assets/a7b7ed5c-0e31-4158-8a76-3b161ed70a70
 
 <p align="center">
   <a href="https://sealos.run/docs/Intro">文档</a> |
@@ -39,32 +39,32 @@ Sealos 是一款以 Kubernetes 为内核的**云操作系统发行版**。它以
 
 ## 🚀 在 Sealos 上快速部署分布式应用
 
-[在线使用](https://cloud.sealos.top)
+[在线使用](https://cloud.sealos.run)
 
-* [在 Sealos 上 30 秒内轻松部署 Nginx](https://sealos.run/docs/quick-start/app-deployments/use-app-launchpad)
-* [在 Sealos 上 30 秒启动 mysql/pgsql/mongo 高可用数据库](https://sealos.run/docs/quick-start/app-deployments/install-db-with-database)
+* [在 Sealos 上 30 秒内轻松部署 Nginx](https://sealos.run/docs/quick-start/use-app-launchpad)
+* [在 Sealos 上 30 秒启动 mysql/pgsql/mongo 高可用数据库](https://sealos.run/docs/quick-start/use-database)
 * [在 Sealos 上 运行 WordPress](https://sealos.run/docs/examples/blog-platform/install-wordpress)
 * [在 Sealos 上 运行 Uptime Kuma 拨测系统](https://sealos.run/docs/examples/dial-testing-system/install-uptime-kuma)
 * [在 Sealos 上 运行低代码平台](https://sealos.run/docs/category/low-code-platform)
 * [在 Sealos 上 运行搭建聊天应用](https://sealos.run/docs/examples/social-communication/install-tailchat)
 
-![](/docs/4.0/img/app-launchpad-zh.png)
+![](/docs/4.0/img/sealos-desktop-zh.webp)
 
 🔍 您可以通过以下的屏幕截图进一步了解 Sealos，关于 Sealos 更为详细的介绍与说明，请参阅 [什么是 Sealos](https://sealos.run/docs/Intro)。
 
 <div align="center">
 
-| 终端 | 应用管理 |
+| 模板市场 | 应用管理 |
 | :---: | :---: |
-| ![](/docs/4.0/img/terminal-zh.webp) | ![](/docs/4.0/img/app-launchpad-1-zh.webp) |
+| ![](/docs/4.0/img/templates-zh.jpg) | ![](/docs/4.0/img/app-launchpad-1-zh.jpg) |
 | 数据库管理 | 函数计算 |
-| ![](/docs/4.0/img/database-zh.webp) | ![](/docs/4.0/img/laf-zh.webp) |
+| ![](/docs/4.0/img/database-zh.jpg) | ![](/docs/4.0/img/laf-zh.jpg) |
 
 </div>
 
 ## 💡 核心功能
 
-- 🚀 **应用管理**：在应用商店中轻松管理并快速发布可公网访问的分布式应用。
+- 🚀 **应用管理**：在模板市场中轻松管理并快速发布可公网访问的分布式应用。
 - 🗄️ **数据库管理**：秒级创建高可用数据库，支持 MySQL、PostgreSQL、MongoDB 和 Redis。
 - 🌥️ **公私一致**：即是公有云也是私有云，支持传统应用无缝迁移到云环境。
 
@@ -85,7 +85,7 @@ Sealos 是一款以 Kubernetes 为内核的**云操作系统发行版**。它以
 
 - 💬 加入我们的 [Discord服务器](https://discord.gg/qzBmGGZGk7)，与 Sealos 开发者和终端用户进行交流。这是了解 Sealos 和 Kubernetes 以及提问和分享经验的理想之地。
 
-- 🐦 在 [Twitter](https://twitter.com/sealosio) 上关注我们。
+- 🐦 在 [Twitter](https://twitter.com/Sailos_io) 上关注我们。
 
 - 🐞 请将任何 Sealos 的 Bug、问题和需求提交到 [GitHub Issue](https://github.com/labring/sealos/issues/new/choose)。
 

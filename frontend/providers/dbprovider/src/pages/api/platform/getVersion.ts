@@ -25,7 +25,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       [DBTypeEnum.kafka]: [],
       [DBTypeEnum.qdrant]: [],
       [DBTypeEnum.nebula]: [],
-      [DBTypeEnum.weaviate]: []
+      [DBTypeEnum.weaviate]: [],
+      [DBTypeEnum.milvus]: []
     };
 
     // source price
@@ -45,7 +46,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         item?.metadata?.name &&
         !DBVersionMap[db].find((db) => db.id === item.metadata.name)
       ) {
-        DBVersionMap[db].push({
+        DBVersionMap[db].unshift({
           id: item.metadata.name,
           label: item.metadata.name
         });

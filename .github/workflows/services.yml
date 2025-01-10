@@ -44,8 +44,9 @@ on:
       - "!**/*.yaml"
 env:
   # Common versions
-  GO_VERSION: "1.20"
+  GO_VERSION: "1.22"
   DEFAULT_OWNER: "labring"
+  CRYPTOKEY: ${{ secrets.CONTROLLER_BUILD_CRYPTOKEY }}
 
 jobs:
   resolve-modules:
@@ -86,7 +87,7 @@ jobs:
     strategy:
       matrix:
         ## TODO: add more modules
-        module: [database, pay, account, minio]
+        module: [ database, pay, account, minio, launchpad, exceptionmonitor, aiproxy, devbox ]
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -172,6 +173,8 @@ jobs:
 
   save-sealos:
     uses: ./.github/workflows/import-save-sealos.yml
+    with:
+      artifact_name: sealos-services
   build-cluster-image:
     if: ${{ (github.event_name == 'push') ||(github.event_name == 'create') || (inputs.push_image == true) }}
     needs:
@@ -181,7 +184,7 @@ jobs:
     strategy:
       matrix:
         ## TODO: add more modules
-        module: [database, pay, account, minio]
+        module: [ database, pay, account, minio, launchpad, exceptionmonitor, aiproxy, devbox ]
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -207,9 +210,9 @@ jobs:
           echo cluster_repo=ghcr.io/${{ github.repository_owner }}/sealos-cloud-${{ matrix.module }}-service >> $GITHUB_OUTPUT
 
       - name: Download sealos
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: sealos
+          name: sealos-services
           path: /tmp/
       - name: Verify sealos
         run: |

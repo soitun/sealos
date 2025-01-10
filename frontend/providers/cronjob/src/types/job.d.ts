@@ -60,6 +60,7 @@ export type CronJobEditType = {
   launchpadName: string;
   launchpadId: string;
   serviceAccountName: string;
+  launchpadKind: string;
 } & CronJobDetailType;
 
 export type CronJobDetailType = {
@@ -89,17 +90,18 @@ export interface JobEvent {
   lastTime: string;
 }
 
+export type JobStatus = 'active' | 'succeeded' | 'failed';
+
 export type JobList = {
   total: number;
   successAmount: number;
   history: {
-    status: boolean;
+    status: JobStatus;
     startTime: string;
     completionTime: string;
     uid: string | undefined;
     name: string | undefined;
     events: JobEvent[];
-    logs: string;
     podName: string;
     startTimeTimestamp: number;
   }[];
@@ -114,4 +116,5 @@ export type CronJobAnnotations = {
   launchpadName: string;
   launchpadId: string;
   replicas: string;
+  launchpadKind: string;
 };

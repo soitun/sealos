@@ -1,7 +1,8 @@
+import YamlCode from '@/components/YamlCode';
 import type { YamlItemType } from '@/types';
 import { Box, Flex, Grid } from '@chakra-ui/react';
-import { useState } from 'react';
-import { YamlCode } from '@sealos/ui';
+import { useState, memo } from 'react';
+
 const YamlList = ({ yamlList = [] }: { yamlList: YamlItemType[] }) => {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -30,15 +31,15 @@ const YamlList = ({ yamlList = [] }: { yamlList: YamlItemType[] }) => {
             }}
             {...(index === selectedIndex
               ? {
-                  fontWeight: 'bold',
-                  borderColor: 'myGray.900',
-                  backgroundColor: 'myWhite.600 !important'
-                }
+                fontWeight: 'bold',
+                borderColor: 'myGray.900',
+                backgroundColor: 'myWhite.600 !important'
+              }
               : {
-                  color: 'myGray.500',
-                  borderColor: 'myGray.200',
-                  backgroundColor: 'transparent'
-                })}
+                color: 'myGray.500',
+                borderColor: 'myGray.200',
+                backgroundColor: 'transparent'
+              })}
             onClick={() => setSelectedIndex(index)}
           >
             {file.filename.replace(/-.*/, '')}
@@ -47,11 +48,11 @@ const YamlList = ({ yamlList = [] }: { yamlList: YamlItemType[] }) => {
       </Box>
       {!!yamlList[selectedIndex] && (
         <Grid w="0" h="full" flex={'auto'} overflow={'auto'}>
-          <YamlCode markdown={{ children: yamlList[selectedIndex].value }}></YamlCode>
+          <YamlCode content={yamlList[selectedIndex].value} />
         </Grid>
       )}
     </Flex>
   );
 };
 
-export default YamlList;
+export default memo(YamlList);

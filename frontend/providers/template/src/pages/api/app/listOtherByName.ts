@@ -146,14 +146,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         kind: 'PromehteusList';
       };
     }>;
-    const prometheusPvcPromise = k8sCore.listNamespacedPersistentVolumeClaim(
+
+    // const prometheusPvcPromise = k8sCore.listNamespacedPersistentVolumeClaim(
+    //   namespace,
+    //   undefined,
+    //   undefined,
+    //   undefined,
+    //   undefined,
+    //   `app.kubernetes.io/name=prometheus,prometheus=${instanceName}`
+    // );
+
+    const pvcPromise = k8sCore.listNamespacedPersistentVolumeClaim(
       namespace,
       undefined,
       undefined,
       undefined,
       undefined,
-      `app.kubernetes.io/name=prometheus,prometheus=${instanceName}`
+      labelSelector
     );
+
     const servicemonitorPromise = k8sCustomObjects.listNamespacedCustomObject(
       'monitoring.coreos.com',
       'v1',
@@ -188,7 +199,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         kind: 'ProbeList';
       };
     }>;
-    // 使用 Promise.allSettled 获取所有结果 [secretResult, jobResult, customResourceResult]
+
+    const servicePromise = k8sCore.listNamespacedService(
+      namespace,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      `${labelSelector}`
+    );
+
+    const devboxPromise = k8sCustomObjects.listNamespacedCustomObject(
+      'devbox.sealos.io',
+      'v1alpha1',
+      namespace,
+      'devboxes',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      labelSelector
+    ) as Promise<{
+      response: IncomingMessage;
+      body: {
+        items: { kind?: string }[];
+        kind: 'DevboxList';
+      };
+    }>;
+
     const result = await Promise.allSettled([
       secretPromise,
       jobPromise,
@@ -200,15 +238,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       configMapPromise,
       prometheusPromise,
       prometheusPromiseRule,
-      prometheusPvcPromise,
       servicemonitorPromise,
-      probePromise
+      probePromise,
+      servicePromise,
+      devboxPromise,
+      pvcPromise
     ]);
     const data = result
       .map((res) => {
         if (res.status === 'fulfilled') {
           return res.value.body.items.map((item) => {
-            // console.log(item, '==');
+            // console.log(item, '===');
             return {
               ...item,
               kind: item.kind ? item.kind : res.value?.body?.kind?.replace('List', '')

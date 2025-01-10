@@ -1,4 +1,5 @@
 import { authSession } from '@/service/backend/auth';
+import { getRegionByUid, makeAPIClientByHeader } from '@/service/backend/region';
 import { jsonRes } from '@/service/backend/response';
 import type { NextApiRequest, NextApiResponse } from 'next';
 export default async function handler(req: NextApiRequest, resp: NextApiResponse) {
@@ -8,16 +9,12 @@ export default async function handler(req: NextApiRequest, resp: NextApiResponse
     if (user === null) {
       return jsonRes(resp, { code: 403, message: 'user null' });
     }
-    const url = process.env.BILLING_URI + '/account/v1alpha1/properties';
-    const res = await (
-      await fetch(url, {
-        method: 'POST',
-        body: JSON.stringify({
-          kubeConfig: kc.exportConfig(),
-          owner: user.name
-        })
-      })
-    ).json();
+    const { regionUid } = req.body as { regionUid: string };
+    const region = await getRegionByUid(regionUid);
+    const client = await makeAPIClientByHeader(req, resp);
+    if (!client) return;
+    const response = await client.post('/account/v1alpha1/properties');
+    const res = response.data;
     return jsonRes(resp, {
       code: 200,
       data: res.data,

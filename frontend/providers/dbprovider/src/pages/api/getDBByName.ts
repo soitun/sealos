@@ -3,6 +3,7 @@ import { ApiResp } from '@/services/kubernet';
 import { authSession } from '@/services/backend/auth';
 import { getK8s } from '@/services/backend/kubernetes';
 import { jsonRes } from '@/services/backend/response';
+import { KbPgClusterType } from '@/types/cluster';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResp>) {
   try {
@@ -11,17 +12,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       throw new Error('name is empty');
     }
 
-    const { k8sCustomObjects, namespace } = await getK8s({
-      kubeconfig: await authSession(req)
-    });
-
-    const { body } = await k8sCustomObjects.getNamespacedCustomObject(
-      'apps.kubeblocks.io',
-      'v1alpha1',
-      namespace,
-      'clusters',
-      name
-    );
+    const body = await getCluster(req, name);
 
     jsonRes(res, {
       data: body
@@ -32,4 +23,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       error: err
     });
   }
+}
+
+export async function getCluster(req: NextApiRequest, name: string) {
+  const { k8sCustomObjects, namespace } = await getK8s({
+    kubeconfig: await authSession(req)
+  });
+
+  const { body } = (await k8sCustomObjects.getNamespacedCustomObject(
+    'apps.kubeblocks.io',
+    'v1alpha1',
+    namespace,
+    'clusters',
+    name
+  )) as {
+    body: KbPgClusterType;
+  };
+
+  return body;
 }

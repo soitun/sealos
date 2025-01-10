@@ -17,6 +17,7 @@ limitations under the License.
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -33,6 +34,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/rand"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -53,6 +56,7 @@ type ObjectStorageUserReconciler struct {
 	InternalEndpoint  string
 	ExternalEndpoint  string
 	OSUDetectionCycle time.Duration
+	QuotaEnabled      bool
 }
 
 const (
@@ -65,12 +69,25 @@ const (
 	OSExternalEndpointEnv = "OSExternalEndpoint"
 	OSNamespace           = "OSNamespace"
 	OSAdminSecret         = "OSAdminSecret"
+	QuotaEnabled          = "QuotaEnabled"
+
+	OSKeySecret          = "object-storage-key"
+	OSKeySecretAccessKey = "accessKey"
+	OSKeySecretSecretKey = "secretKey"
+	OSKeySecretInternal  = "internal"
+	OSKeySecretExternal  = "external"
+	OSKeySecretBucket    = "bucket"
+
+	ResourceQuotaPrefix       = "quota-"
+	ResourceObjectStorageSize = "objectstorage/size"
 )
 
 //+kubebuilder:rbac:groups=objectstorage.sealos.io,resources=objectstorageusers,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=objectstorage.sealos.io,resources=objectstorageusers/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=objectstorage.sealos.io,resources=objectstorageusers/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=resourcequotas,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=resourcequotas/status,verbs=get;list;watch;create;update;patch;delete
 
 func (r *ObjectStorageUserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	username := req.Name
@@ -125,7 +142,25 @@ func (r *ObjectStorageUserReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, nil
 	}
 
-	updated := r.initObjectStorageUser(user, username)
+	resourceQuota := &corev1.ResourceQuota{}
+	if err := r.Get(ctx, client.ObjectKey{Name: ResourceQuotaPrefix + userNamespace, Namespace: userNamespace}, resourceQuota); err != nil {
+		r.Logger.Error(err, "failed to get resource quota", "name", ResourceQuotaPrefix+userNamespace, "namespace", userNamespace)
+		return ctrl.Result{}, err
+	}
+
+	quota := resourceQuota.Spec.Hard.Name(ResourceObjectStorageSize, resource.BinarySI)
+	used := resourceQuota.Status.Used.Name(ResourceObjectStorageSize, resource.BinarySI)
+
+	updated := r.initObjectStorageUser(user, username, quota.Value())
+
+	pwdUpdated := false
+
+	if user.Spec.SecretKeyVersion > user.Status.SecretKeyVersion {
+		user.Status.SecretKey = rand.String(16)
+		user.Status.SecretKeyVersion = user.Spec.SecretKeyVersion
+		pwdUpdated = true
+		updated = true
+	}
 
 	accessKey := user.Status.AccessKey
 	secretKey := user.Status.SecretKey
@@ -144,6 +179,34 @@ func (r *ObjectStorageUserReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 	}
 
+	if pwdUpdated {
+		if err := r.OSAdminClient.SetUser(ctx, accessKey, secretKey, madmin.AccountEnabled); err != nil {
+			r.Logger.Error(err, "failed to set user secret key", "name", accessKey)
+		}
+		r.Logger.V(1).Info("[user] password change info", "name", user.Name, "spec secret key version", user.Spec.SecretKeyVersion)
+	}
+
+	secret := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Name: OSKeySecret, Namespace: userNamespace}, secret); err != nil {
+		if !errors.IsNotFound(err) {
+			r.Logger.Error(err, "failed to get object storage key secret", "name", OSKeySecret, "namespace", userNamespace)
+			return ctrl.Result{}, err
+		}
+
+		if err := r.newObjectStorageKeySecret(ctx, secret, user, accessKey, secretKey); err != nil {
+			r.Logger.Error(err, "failed to new object storage key secret", "name", OSKeySecret, "namespace", userNamespace)
+			return ctrl.Result{}, err
+		}
+	}
+
+	keySecretUpdated := r.initObjectStorageKeySecret(secret, accessKey, secretKey)
+
+	if keySecretUpdated {
+		if err := r.Update(ctx, secret); err != nil {
+			r.Logger.Error(err, "failed to update object storage key secret", "name", OSKeySecret, "namespace", userNamespace)
+		}
+	}
+
 	// check whether the space used exceeds the quota
 	size, objectsCount, err := myObjectStorage.GetUserObjectStorageSize(r.OSClient, user.Name)
 	if err != nil {
@@ -154,6 +217,16 @@ func (r *ObjectStorageUserReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if user.Status.Size != size {
 		user.Status.Size = size
 		updated = true
+	}
+
+	stringSize := ConvertBytesToString(size)
+
+	if used.String() != stringSize {
+		resourceQuota.Status.Used[ResourceObjectStorageSize] = resource.MustParse(stringSize)
+		if err := r.Status().Update(ctx, resourceQuota); err != nil {
+			r.Logger.Error(err, "failed to update status", "name", resourceQuota.Name, "namespace", userNamespace)
+			return ctrl.Result{}, err
+		}
 	}
 
 	if user.Status.ObjectsCount != objectsCount {
@@ -170,7 +243,7 @@ func (r *ObjectStorageUserReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	r.Logger.V(1).Info("[user] user info", "name", user.Name, "quota", user.Status.Quota, "size", size, "objectsCount", user.Status.ObjectsCount)
 
-	if size > user.Status.Quota {
+	if r.QuotaEnabled && size > user.Status.Quota {
 		if err := r.addUserToGroup(ctx, accessKey, UserDenyWriteGroup); err != nil {
 			r.Logger.Error(err, "failed to add user to userDenyWrite group")
 			return ctrl.Result{}, err
@@ -197,6 +270,31 @@ func (r *ObjectStorageUserReconciler) NewObjectStorageUser(ctx context.Context, 
 	}
 
 	return nil
+}
+
+func (r *ObjectStorageUserReconciler) newObjectStorageKeySecret(ctx context.Context, secret *corev1.Secret, user *objectstoragev1.ObjectStorageUser, accessKey, secretKey string) error {
+	secret.SetName(OSKeySecret)
+	secret.SetNamespace(user.Namespace)
+
+	secret.Data = make(map[string][]byte)
+	secret.Data[OSKeySecretAccessKey] = []byte(accessKey)
+	secret.Data[OSKeySecretSecretKey] = []byte(secretKey)
+	secret.Data[OSKeySecretInternal] = []byte(r.InternalEndpoint)
+	secret.Data[OSKeySecretExternal] = []byte(r.ExternalEndpoint)
+
+	reference := metav1.OwnerReference{
+		APIVersion:         user.APIVersion,
+		Kind:               user.Kind,
+		Name:               user.Name,
+		UID:                user.UID,
+		Controller:         nil,
+		BlockOwnerDeletion: nil,
+	}
+	refList := make([]metav1.OwnerReference, 0)
+	refList = append(refList, reference)
+	secret.SetOwnerReferences(refList)
+
+	return r.Create(ctx, secret)
 }
 
 func (r *ObjectStorageUserReconciler) addUserToGroup(ctx context.Context, user string, group string) error {
@@ -280,12 +378,11 @@ func (r *ObjectStorageUserReconciler) deleteObjectStorageUser(ctx context.Contex
 	return nil
 }
 
-func (r *ObjectStorageUserReconciler) initObjectStorageUser(user *objectstoragev1.ObjectStorageUser, username string) bool {
+func (r *ObjectStorageUserReconciler) initObjectStorageUser(user *objectstoragev1.ObjectStorageUser, username string, quota int64) bool {
 	var updated = false
 
-	if user.Status.Quota == 0 {
-		// 1073741824Byte = 1G
-		user.Status.Quota = 1073741824
+	if user.Status.Quota != quota {
+		user.Status.Quota = quota
 		updated = true
 	}
 
@@ -312,6 +409,56 @@ func (r *ObjectStorageUserReconciler) initObjectStorageUser(user *objectstoragev
 	return updated
 }
 
+func (r *ObjectStorageUserReconciler) initObjectStorageKeySecret(secret *corev1.Secret, accessKey, secretKey string) bool {
+	var updated = false
+
+	if !bytes.Equal(secret.Data[OSKeySecretAccessKey], []byte(accessKey)) {
+		secret.Data[OSKeySecretAccessKey] = []byte(accessKey)
+		updated = true
+	}
+
+	if !bytes.Equal(secret.Data[OSKeySecretSecretKey], []byte(secretKey)) {
+		secret.Data[OSKeySecretSecretKey] = []byte(secretKey)
+		updated = true
+	}
+
+	if !bytes.Equal(secret.Data[OSKeySecretInternal], []byte(r.InternalEndpoint)) {
+		secret.Data[OSKeySecretInternal] = []byte(r.InternalEndpoint)
+		updated = true
+	}
+
+	if !bytes.Equal(secret.Data[OSKeySecretExternal], []byte(r.ExternalEndpoint)) {
+		secret.Data[OSKeySecretExternal] = []byte(r.ExternalEndpoint)
+		updated = true
+	}
+
+	return updated
+}
+
+func ConvertBytesToString(bytes int64) string {
+	var unit string
+	var value float64
+
+	switch {
+	case bytes >= 1<<40: // 1 TiB
+		value = float64(bytes) / (1 << 40)
+		unit = "Ti"
+	case bytes >= 1<<30: // 1 GiB
+		value = float64(bytes) / (1 << 30)
+		unit = "Gi"
+	case bytes >= 1<<20: // 1 MiB
+		value = float64(bytes) / (1 << 20)
+		unit = "Mi"
+	case bytes >= 1<<10: // 1 KiB
+		value = float64(bytes) / (1 << 10)
+		unit = "Ki"
+	default:
+		return fmt.Sprintf("%d", bytes)
+	}
+
+	return fmt.Sprintf("%.0f%s", value, unit)
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *ObjectStorageUserReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Logger = ctrl.Log.WithName("object-storage-user-controller")
@@ -335,6 +482,9 @@ func (r *ObjectStorageUserReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if internalEndpoint == "" || externalEndpoint == "" || oSNamespace == "" || oSAdminSecret == "" {
 		return fmt.Errorf("failed to get the endpoint or namespace or admin secret env of object storage")
 	}
+
+	quotaEnabled := env.GetBoolWithDefault(QuotaEnabled, true)
+	r.QuotaEnabled = quotaEnabled
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&objectstoragev1.ObjectStorageUser{}).

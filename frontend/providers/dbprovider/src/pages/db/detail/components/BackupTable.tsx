@@ -1,38 +1,40 @@
-import React, {
-  forwardRef,
-  useCallback,
-  ForwardedRef,
-  useImperativeHandle,
-  useState,
-  useMemo
-} from 'react';
+import { deleteBackup, getBackupList, getBackupPolicyByCluster } from '@/api/backup';
+import MyIcon from '@/components/Icon';
+import { BackupStatusEnum, backupTypeMap } from '@/constants/backup';
+import { useConfirm } from '@/hooks/useConfirm';
+import { useLoading } from '@/hooks/useLoading';
+import type { BackupItemType, DBDetailType } from '@/types/db';
+import { I18nCommonKey } from '@/types/i18next';
+import { getErrText } from '@/utils/tools';
+import { QuestionOutlineIcon } from '@chakra-ui/icons';
 import {
   Box,
-  Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
-  TableContainer,
+  Button,
   Flex,
-  useDisclosure,
-  Tooltip
+  Table,
+  TableContainer,
+  Tbody,
+  Td,
+  Text,
+  Th,
+  Thead,
+  Tooltip,
+  Tr,
+  useDisclosure
 } from '@chakra-ui/react';
-import { QuestionOutlineIcon } from '@chakra-ui/icons';
-import type { BackupItemType, DBDetailType } from '@/types/db';
-import { useLoading } from '@/hooks/useLoading';
-import { useToast } from '@/hooks/useToast';
-import dynamic from 'next/dynamic';
+import { MyTooltip, useMessage } from '@sealos/ui';
 import { useQuery } from '@tanstack/react-query';
-import { useConfirm } from '@/hooks/useConfirm';
 import dayjs from 'dayjs';
-import { BackupStatusEnum, backupTypeMap } from '@/constants/backup';
 import { useTranslation } from 'next-i18next';
-import { deleteBackup, getBackupPolicy, getBackupPolicyByCluster } from '@/api/backup';
-import { getErrText } from '@/utils/tools';
-import { getBackupList } from '@/api/backup';
-import MyIcon from '@/components/Icon';
+import dynamic from 'next/dynamic';
+import React, {
+  ForwardedRef,
+  forwardRef,
+  useCallback,
+  useImperativeHandle,
+  useMemo,
+  useState
+} from 'react';
 
 const BackupModal = dynamic(() => import('./BackupModal'));
 const RestoreModal = dynamic(() => import('./RestoreModal'));
@@ -45,7 +47,7 @@ export type ComponentRef = {
 const BackupTable = ({ db }: { db?: DBDetailType }, ref: ForwardedRef<ComponentRef>) => {
   if (!db) return <></>;
   const { t } = useTranslation();
-  const { toast } = useToast();
+  const { message: toast } = useMessage();
   const { Loading, setIsLoading } = useLoading();
   const {
     isOpen: isOpenBackupModal,
@@ -54,10 +56,10 @@ const BackupTable = ({ db }: { db?: DBDetailType }, ref: ForwardedRef<ComponentR
   } = useDisclosure();
 
   const { openConfirm: openConfirmDel, ConfirmChild: RestartConfirmDelChild } = useConfirm({
-    content: t('Confirm delete the backup')
+    content: t('confirm_delete_the_backup')
   });
 
-  const [restoreBackupName, setRestoreBackupName] = useState<string>();
+  const [backupInfo, setBackupInfo] = useState<BackupItemType>();
 
   const {
     isInitialLoading,
@@ -65,7 +67,7 @@ const BackupTable = ({ db }: { db?: DBDetailType }, ref: ForwardedRef<ComponentR
     data: backups = [],
     isSuccess
   } = useQuery(
-    ['intervalLoadBackups'],
+    ['intervalLoadBackups', db.dbName],
     async () => {
       const backups: BackupItemType[] = await getBackupList(db.dbName);
       backups.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
@@ -109,32 +111,33 @@ const BackupTable = ({ db }: { db?: DBDetailType }, ref: ForwardedRef<ComponentR
     cursor: 'pointer',
     _hover: { bg: '#EFF0F1' }
   };
+
   const operationIconStyles = {
     w: '18px'
   };
 
   const columns: {
-    title: string;
+    title: I18nCommonKey;
     dataIndex?: keyof BackupItemType;
     key: string;
     render?: (item: BackupItemType, i: number) => React.ReactNode | string;
   }[] = [
     {
-      title: 'Name',
+      title: 'name',
       key: 'name',
       dataIndex: 'name'
     },
     {
-      title: 'Remark',
+      title: 'remark',
       key: 'remark',
       dataIndex: 'remark'
     },
     {
-      title: 'Status',
+      title: 'status',
       key: 'status',
       render: (item: BackupItemType) => (
         <Flex color={item.status.color} alignItems={'center'}>
-          {t(item.status.label)}
+          {t(item.status.label as I18nCommonKey)}
           {item.failureReason && (
             <Tooltip label={item.failureReason}>
               <QuestionOutlineIcon ml={1} />
@@ -144,7 +147,7 @@ const BackupTable = ({ db }: { db?: DBDetailType }, ref: ForwardedRef<ComponentR
       )
     },
     {
-      title: 'Backup Time',
+      title: 'backup_time',
       key: 'backupTime',
       render: (item: BackupItemType) => <>{dayjs(item.startTime).format('YYYY/MM/DD HH:mm')}</>
     },
@@ -154,31 +157,26 @@ const BackupTable = ({ db }: { db?: DBDetailType }, ref: ForwardedRef<ComponentR
       render: (item: BackupItemType) => <>{t(backupTypeMap[item.type]?.label) || '-'}</>
     },
     {
-      title: 'Operation',
+      title: 'operation',
       key: 'control',
       render: (item: BackupItemType) =>
         item.status.value !== BackupStatusEnum.InProgress ? (
           <Flex>
-            <Tooltip label={t('Restore Backup')}>
-              <Flex {...operationIconBoxStyles} onClick={() => setRestoreBackupName(item.name)}>
+            <MyTooltip label={t('restore_backup')}>
+              <Button variant={'square'} onClick={() => setBackupInfo(item)}>
                 <MyIcon name={'restore'} {...operationIconStyles} />
-              </Flex>
-            </Tooltip>
-            {/* <Tooltip label={t('Download Backup')}>
-            <Flex {...operationIconBoxStyles}>
-              <MyIcon {...operationIconStyles} name={'download'} w={'16px'} />
-            </Flex>
-          </Tooltip> */}
-            <Tooltip label={t('Delete Backup')}>
-              <Flex
-                {...operationIconBoxStyles}
+              </Button>
+            </MyTooltip>
+            <MyTooltip label={t('delete_backup')}>
+              <Button
+                variant={'square'}
                 mr={0}
                 _hover={{ bg: '#EFF0F1', color: 'red.600' }}
                 onClick={openConfirmDel(() => confirmDel(item.name))}
               >
                 <MyIcon name={'delete'} {...operationIconStyles} />
-              </Flex>
-            </Tooltip>
+              </Button>
+            </MyTooltip>
           </Flex>
         ) : null
     }
@@ -198,9 +196,33 @@ const BackupTable = ({ db }: { db?: DBDetailType }, ref: ForwardedRef<ComponentR
 
   return (
     <Flex flexDirection={'column'} h="100%" position={'relative'}>
+      <Flex justifyContent={'space-between'} alignItems={'center'} mb={'16px'}>
+        <Box
+          pb={'6px'}
+          pt={'4px'}
+          borderBottom={'2px solid'}
+          fontSize={'16px'}
+          fontWeight={500}
+          color={'grayModern.900'}
+        >
+          {t('backup_list')}
+        </Box>
+        {!backupProcessing && (
+          <Button
+            ml={3}
+            height={'32px'}
+            variant={'solid'}
+            onClick={() => {
+              onOpenBackupModal();
+            }}
+          >
+            {t('Backup')}
+          </Button>
+        )}
+      </Flex>
       <TableContainer overflowY={'auto'}>
         <Table variant={'simple'} backgroundColor={'white'}>
-          <Thead>
+          <Thead position={'sticky'} top={0} zIndex={1}>
             <Tr>
               {columns.map((item) => (
                 <Th
@@ -208,8 +230,15 @@ const BackupTable = ({ db }: { db?: DBDetailType }, ref: ForwardedRef<ComponentR
                   py={4}
                   key={item.key}
                   border={'none'}
-                  backgroundColor={'#F8F8FA'}
+                  backgroundColor={'grayModern.50'}
                   fontWeight={'500'}
+                  color={'grayModern.600'}
+                  _first={{
+                    borderLeftRadius: '6px'
+                  }}
+                  _last={{
+                    borderRightRadius: '6px'
+                  }}
                 >
                   {t(item.title)}
                 </Th>
@@ -236,7 +265,7 @@ const BackupTable = ({ db }: { db?: DBDetailType }, ref: ForwardedRef<ComponentR
       {isSuccess && backups.length === 0 && (
         <Flex justifyContent={'center'} alignItems={'center'} flexDirection={'column'} flex={1}>
           <MyIcon name={'noEvents'} color={'transparent'} width={'36px'} height={'36px'} />
-          <Box pt={'8px'}>{t('No Data Available')}</Box>
+          <Box pt={'8px'}>{t('no_data_available')}</Box>
         </Flex>
       )}
       <Loading loading={isInitialLoading} fixed={false} />
@@ -250,12 +279,8 @@ const BackupTable = ({ db }: { db?: DBDetailType }, ref: ForwardedRef<ComponentR
           refetchPolicy={refetchPolicy}
         />
       )}
-      {!!restoreBackupName && (
-        <RestoreModal
-          db={db}
-          backupName={restoreBackupName}
-          onClose={() => setRestoreBackupName(undefined)}
-        />
+      {!!backupInfo?.name && (
+        <RestoreModal db={db} backupInfo={backupInfo} onClose={() => setBackupInfo(undefined)} />
       )}
     </Flex>
   );

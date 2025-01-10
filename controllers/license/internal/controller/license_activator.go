@@ -16,26 +16,65 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	licensev1 "github.com/labring/sealos/controllers/license/api/v1"
-	accountutil "github.com/labring/sealos/controllers/license/internal/util/account"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	claimsutil "github.com/labring/sealos/controllers/license/internal/util/claims"
+	licenseutil "github.com/labring/sealos/controllers/license/internal/util/license"
+	count "github.com/labring/sealos/controllers/pkg/account"
+	database2 "github.com/labring/sealos/controllers/pkg/database"
+	types2 "github.com/labring/sealos/controllers/pkg/types"
+	"github.com/labring/sealos/controllers/pkg/utils/logger"
 )
 
 type LicenseActivator struct {
 	client.Client
+	accountDB database2.AccountV2
 }
 
-func (a *LicenseActivator) Active(ctx context.Context, license *licensev1.License) error {
+func (l *LicenseActivator) Active(license *licensev1.License) error {
 	// TODO mv to active function
-	switch license.Spec.Type {
-	case licensev1.AccountLicenseType:
-		if err := accountutil.Recharge(ctx, a.Client, license); err != nil {
-			return err
+	if license.Spec.Type == licensev1.AccountLicenseType {
+		if err := l.Recharge(license); err != nil {
+			return fmt.Errorf("recharge account failed: %w", err)
 		}
-	case licensev1.ClusterLicenseType:
-		// TODO implement cluster license
+	}
+	exp, err := licenseutil.GetLicenseExpireTime(license)
+	if err != nil {
+		return err
+	}
+	license.Status.ExpirationTime = metav1.NewTime(exp)
+	license.Status.ActivationTime = metav1.NewTime(time.Now())
+	license.Status.Phase = licensev1.LicenseStatusPhaseActive
+
+	if err := l.Status().Update(context.Background(), license); err != nil {
+		return fmt.Errorf("update license status failed: %w", err)
 	}
 	return nil
+}
+
+func (l *LicenseActivator) Recharge(license *licensev1.License) error {
+	claims, err := licenseutil.GetClaims(license)
+	if err != nil {
+		return err
+	}
+
+	var data = &claimsutil.AccountClaimData{}
+	if err := claims.Data.SwitchToAccountData(data); err != nil {
+		return err
+	}
+	owner := GetNameByNameSpace(license.Namespace)
+
+	logger.Info("recharge account", "crName", owner, "amount", data.Amount)
+
+	return l.accountDB.AddBalance(&types2.UserQueryOpts{Owner: owner}, data.Amount*count.CurrencyUnit)
+}
+
+func GetNameByNameSpace(ns string) string {
+	return strings.TrimPrefix(ns, "ns-")
 }

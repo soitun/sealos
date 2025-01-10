@@ -15,14 +15,14 @@
 package resources
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
-	"github.com/labring/sealos/controllers/pkg/common"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/labring/sealos/controllers/pkg/crypto"
-	"github.com/labring/sealos/controllers/pkg/utils/logger"
+	"github.com/google/uuid"
+
+	"github.com/labring/sealos/controllers/pkg/common"
 
 	"github.com/labring/sealos/controllers/pkg/gpu"
 	"github.com/labring/sealos/controllers/pkg/utils/env"
@@ -79,12 +79,37 @@ type Price struct {
 type Monitor struct {
 	Time time.Time `json:"time" bson:"time"`
 	// equal namespace
-	Category string      `json:"category" bson:"category"`
-	Type     uint8       `json:"type" bson:"type"`
-	Name     string      `json:"name" bson:"name"`
-	Used     EnumUsedMap `json:"used" bson:"used"`
-	Property string      `json:"property,omitempty" bson:"property,omitempty"`
+	Category   string      `json:"category" bson:"category"`
+	Type       uint8       `json:"type" bson:"type"`
+	ParentType uint8       `json:"parent_type" bson:"parent_type"`
+	ParentName string      `json:"parent_name" bson:"parent_name"`
+	Name       string      `json:"name" bson:"name"`
+	Used       EnumUsedMap `json:"used" bson:"used"`
+	Property   string      `json:"property,omitempty" bson:"property,omitempty"`
 }
+
+type ActiveBilling struct {
+	ID        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	Time      time.Time          `json:"time,omitempty" bson:"time"`
+	Namespace string             `json:"namespace" bson:"namespace"`
+	AppType   string             `json:"app_type" bson:"app_type"`
+	AppName   string             `json:"app_name" bson:"app_name"`
+	Used      UsedMap            `json:"used,omitempty" bson:"used,omitempty"`
+	Amount    int64              `json:"amount" bson:"amount,omitempty"`
+	Owner     string             `json:"owner" bson:"owner,omitempty"`
+	UserUID   uuid.UUID          `json:"user_uid" bson:"user_uid"`
+	Status    ConsumptionStatus  `json:"status" bson:"status"`
+	//Rule      string            `json:"rule" bson:"rule,omitempty"`
+}
+
+type ConsumptionStatus string
+
+const (
+	Consumed      ConsumptionStatus = "consumed"
+	Processing    ConsumptionStatus = "processing"
+	Unconsumed    ConsumptionStatus = "unconsumed"
+	ErrorConsumed ConsumptionStatus = "error_consumed"
+)
 
 type BillingType int
 
@@ -98,16 +123,19 @@ type Billing struct {
 	//UsedAmount Used        `json:"used_amount" bson:"used_amount"`
 
 	AppCosts []AppCost `json:"app_costs,omitempty" bson:"app_costs,omitempty"`
+	AppName  string    `json:"app_name,omitempty" bson:"app_name,omitempty"`
 	AppType  uint8     `json:"app_type,omitempty" bson:"app_type,omitempty"`
 
 	Amount int64  `json:"amount" bson:"amount,omitempty"`
 	Owner  string `json:"owner" bson:"owner,omitempty"`
 	// 0: 未结算 1: 已结算
-	Status BillingStatus `json:"status" bson:"status,omitempty"`
+	Status BillingStatus `json:"status" bson:"status"`
 	// if type = Consumption, then payment is not nil
 	Payment *Payment `json:"payment" bson:"payment,omitempty"`
 	// if type = Transfer, then transfer is not nil
 	Transfer *Transfer `json:"transfer" bson:"transfer,omitempty"`
+	Detail   string    `json:"detail" bson:"detail,omitempty"`
+	UserUID  uuid.UUID `json:"user_uid" bson:"user_uid,omitempty"`
 }
 
 type Payment struct {
@@ -126,6 +154,7 @@ type Transfer struct {
 }
 
 type AppCost struct {
+	Type       uint8       `json:"type" bson:"type"`
 	Used       EnumUsedMap `json:"used" bson:"used"`
 	UsedAmount EnumUsedMap `json:"used_amount" bson:"used_amount"`
 	Amount     int64       `json:"amount" bson:"amount,omitempty"`
@@ -160,6 +189,11 @@ const (
 	job
 	other
 	objectStorage
+	cvm
+	appStore
+	dbBackup
+	devBox
+	llmToken
 )
 
 const (
@@ -169,18 +203,25 @@ const (
 	JOB           = "JOB"
 	OTHER         = "OTHER"
 	ObjectStorage = "OBJECT-STORAGE"
+	CVM           = "CLOUD-VM"
+	AppStore      = "APP-STORE"
+	DBBackup      = "DB-BACKUP"
+	DevBox        = "DEV-BOX"
+	LLMToken      = "LLM-TOKEN"
 )
 
 var AppType = map[string]uint8{
-	DB: db, APP: app, TERMINAL: terminal, JOB: job, OTHER: other, ObjectStorage: objectStorage,
+	DB: db, APP: app, TERMINAL: terminal, JOB: job, OTHER: other, ObjectStorage: objectStorage, CVM: cvm, AppStore: appStore, DBBackup: dbBackup, DevBox: devBox, LLMToken: llmToken,
 }
 
 var AppTypeReverse = map[uint8]string{
-	db: DB, app: APP, terminal: TERMINAL, job: JOB, other: OTHER, objectStorage: ObjectStorage,
+	db: DB, app: APP, terminal: TERMINAL, job: JOB, other: OTHER, objectStorage: ObjectStorage, cvm: CVM, appStore: AppStore, dbBackup: DBBackup, devBox: DevBox, llmToken: LLMToken,
 }
 
 // resource consumption
 type EnumUsedMap map[uint8]int64
+
+type UsedMap map[string]float64
 
 type PropertyType struct {
 	// For the monitoring storage enumeration type, use uint 8 to save memory
@@ -284,11 +325,6 @@ func ConvertEnumUsedToString(costs map[uint8]int64) (costsMap map[string]int64) 
 }
 
 func NewPropertyTypeLS(types []PropertyType) (ls *PropertyTypeLS) {
-	types, err := decryptPrice(types)
-	if err != nil {
-		logger.Warn("failed to decrypt price : %v", err)
-		types = DefaultPropertyTypeList
-	}
 	return newPropertyTypeLS(types)
 }
 
@@ -308,21 +344,6 @@ func newPropertyTypeLS(types []PropertyType) (ls *PropertyTypeLS) {
 	return
 }
 
-func decryptPrice(types []PropertyType) ([]PropertyType, error) {
-	for i := range types {
-		if types[i].EncryptUnitPrice == "" {
-			return types, fmt.Errorf("encrypt %s unit price is empty", types[i].Name)
-		}
-		price, err := crypto.DecryptFloat64(types[i].EncryptUnitPrice)
-		if err != nil {
-			return types, fmt.Errorf("failed to decrypt %s unit price : %v", types[i].Name, err)
-		}
-		types[i].UnitPrice = price
-		logger.Info("parse properties", types[i].Enum, types[i].UnitPrice)
-	}
-	return types, nil
-}
-
 type PropertyTypeEnumMap map[uint8]PropertyType
 
 type PropertyTypeStringMap map[string]PropertyType
@@ -336,8 +357,10 @@ const ResourceGPU corev1.ResourceName = gpu.NvidiaGpuKey
 const ResourceNetwork = "network"
 
 const (
-	ResourceRequestGpu corev1.ResourceName = "requests." + gpu.NvidiaGpuKey
-	ResourceLimitGpu   corev1.ResourceName = "limits." + gpu.NvidiaGpuKey
+	ResourceRequestGpu          corev1.ResourceName = "requests." + gpu.NvidiaGpuKey
+	ResourceLimitGpu            corev1.ResourceName = "limits." + gpu.NvidiaGpuKey
+	ResourceObjectStorageSize   corev1.ResourceName = "objectstorage/size"
+	ResourceObjectStorageBucket corev1.ResourceName = "objectstorage/bucket"
 )
 
 func NewGpuResource(product string) corev1.ResourceName {
@@ -375,19 +398,31 @@ func GetDefaultLimitRange(ns, name string) *corev1.LimitRange {
 }
 
 const (
-	QuotaLimitsCPU       = "QUOTA_LIMITS_CPU"
-	QuotaLimitsMemory    = "QUOTA_LIMITS_MEMORY"
-	QuotaLimitsStorage   = "QUOTA_LIMITS_STORAGE"
-	QuotaLimitsGPU       = "QUOTA_LIMITS_GPU"
-	QuotaLimitsNodePorts = "QUOTA_LIMITS_NODE_PORTS"
+	QuotaLimitsCPU           = "QUOTA_LIMITS_CPU"
+	QuotaLimitsMemory        = "QUOTA_LIMITS_MEMORY"
+	QuotaLimitsStorage       = "QUOTA_LIMITS_STORAGE"
+	QuotaLimitsGPU           = "QUOTA_LIMITS_GPU"
+	QuotaLimitsNodePorts     = "QUOTA_LIMITS_NODE_PORTS"
+	QuotaObjectStorageSize   = "QUOTA_OBJECT_STORAGE_SIZE"
+	QuotaObjectStorageBucket = "QUOTA_OBJECT_STORAGE_BUCKET"
+
+	LimitRangeCPU              = "LIMIT_RANGE_CPU"
+	LimitRangeMemory           = "LIMIT_RANGE_MEMORY"
+	LimitRangeEphemeralStorage = "LIMIT_RANGE_EPHEMERAL_STORAGE"
+
+	LimitRangeRepCPU              = "LIMIT_RANGE_REP_CPU"
+	LimitRangeRepMemory           = "LIMIT_RANGE_REP_MEMORY"
+	LimitRangeRepEphemeralStorage = "LIMIT_RANGE_REP_EPHEMERAL_STORAGE"
 )
 
 const (
-	DefaultQuotaLimitsCPU       = "16"
-	DefaultQuotaLimitsMemory    = "64Gi"
-	DefaultQuotaLimitsStorage   = "100Gi"
-	DefaultQuotaLimitsGPU       = "8"
-	DefaultQuotaLimitsNodePorts = "3"
+	DefaultQuotaLimitsCPU           = "16"
+	DefaultQuotaLimitsMemory        = "64Gi"
+	DefaultQuotaLimitsStorage       = "100Gi"
+	DefaultQuotaLimitsGPU           = "8"
+	DefaultQuotaLimitsNodePorts     = "10"
+	DefaultQuotaObjectStorageSize   = "100Gi"
+	DefaultQuotaObjectStorageBucket = "5"
 )
 
 func DefaultResourceQuotaHard() corev1.ResourceList {
@@ -399,6 +434,8 @@ func DefaultResourceQuotaHard() corev1.ResourceList {
 		corev1.ResourceRequestsStorage:        resource.MustParse(env.GetEnvWithDefault(QuotaLimitsStorage, DefaultQuotaLimitsStorage)),
 		corev1.ResourceLimitsEphemeralStorage: resource.MustParse(env.GetEnvWithDefault(QuotaLimitsStorage, DefaultQuotaLimitsStorage)),
 		corev1.ResourceServicesNodePorts:      resource.MustParse(env.GetEnvWithDefault(QuotaLimitsNodePorts, DefaultQuotaLimitsNodePorts)),
+		ResourceObjectStorageSize:             resource.MustParse(env.GetEnvWithDefault(QuotaObjectStorageSize, DefaultQuotaObjectStorageSize)),
+		ResourceObjectStorageBucket:           resource.MustParse(env.GetEnvWithDefault(QuotaObjectStorageBucket, DefaultQuotaObjectStorageBucket)),
 		//TODO storage.diskio.read, storage.diskio.write
 	}
 }
@@ -407,14 +444,40 @@ func DefaultLimitRangeLimits() []corev1.LimitRangeItem {
 	return []corev1.LimitRangeItem{
 		{
 			Type:           corev1.LimitTypeContainer,
-			Default:        LimitRangeDefault,
-			DefaultRequest: LimitRangeDefault,
+			Default:        defaultLimitRange,
+			DefaultRequest: defaultLimitRangeReq,
 		},
 	}
 }
 
-var LimitRangeDefault = corev1.ResourceList{
-	corev1.ResourceCPU:              resource.MustParse("50m"),
-	corev1.ResourceMemory:           resource.MustParse("64Mi"),
-	corev1.ResourceEphemeralStorage: resource.MustParse("100Mi"),
+var defaultLimitRange, defaultLimitRangeReq = getLimitRangeDefault(), getLimitRangeReq()
+
+func getLimitRangeDefault() corev1.ResourceList {
+	rcList := corev1.ResourceList{}
+	cpu, memory, ephemeralStorage := resource.MustParse(env.GetEnvWithDefault(LimitRangeCPU, "50m")), resource.MustParse(env.GetEnvWithDefault(LimitRangeMemory, "64Mi")), resource.MustParse(env.GetEnvWithDefault(LimitRangeEphemeralStorage, "100Mi"))
+	if !cpu.IsZero() {
+		rcList[corev1.ResourceCPU] = cpu
+	}
+	if !memory.IsZero() {
+		rcList[corev1.ResourceMemory] = memory
+	}
+	if !ephemeralStorage.IsZero() {
+		rcList[corev1.ResourceEphemeralStorage] = ephemeralStorage
+	}
+	return rcList
+}
+
+func getLimitRangeReq() corev1.ResourceList {
+	rcList := corev1.ResourceList{}
+	cpu, memory, ephemeralStorage := resource.MustParse(env.GetEnvWithDefault(LimitRangeRepCPU, "50m")), resource.MustParse(env.GetEnvWithDefault(LimitRangeRepMemory, "64Mi")), resource.MustParse(env.GetEnvWithDefault(LimitRangeRepEphemeralStorage, "100Mi"))
+	if !cpu.IsZero() {
+		rcList[corev1.ResourceCPU] = cpu
+	}
+	if !memory.IsZero() {
+		rcList[corev1.ResourceMemory] = memory
+	}
+	if !ephemeralStorage.IsZero() {
+		rcList[corev1.ResourceEphemeralStorage] = ephemeralStorage
+	}
+	return rcList
 }
