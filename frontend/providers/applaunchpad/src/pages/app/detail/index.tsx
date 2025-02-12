@@ -70,9 +70,16 @@ const AppDetail = ({ appName }: { appName: string }) => {
   );
 
   return (
-    <Flex flexDirection={'column'} height={'100vh'} backgroundColor={'#F3F4F5'} px={9} pb={4}>
+    <Flex
+      flexDirection={'column'}
+      height={'100vh'}
+      backgroundColor={'grayModern.100'}
+      px={'32px'}
+      pb={4}
+    >
       <Box>
         <Header
+          source={appDetail.source}
           appName={appName}
           appStatus={appDetail?.status}
           isPause={appDetail?.isPause}
@@ -91,8 +98,8 @@ const AppDetail = ({ appName }: { appName: string }) => {
           zIndex={1}
           transition={'0.4s'}
           bg={'white'}
-          border={theme.borders.sm}
-          borderRadius={'md'}
+          border={theme.borders.base}
+          borderRadius={'lg'}
           {...(isLargeScreen
             ? {}
             : {
@@ -108,8 +115,8 @@ const AppDetail = ({ appName }: { appName: string }) => {
           <Box
             mb={4}
             bg={'white'}
-            border={theme.borders.sm}
-            borderRadius={'md'}
+            border={theme.borders.base}
+            borderRadius={'lg'}
             flexShrink={0}
             minH={'257px'}
           >
@@ -117,8 +124,8 @@ const AppDetail = ({ appName }: { appName: string }) => {
           </Box>
           <Box
             bg={'white'}
-            border={theme.borders.sm}
-            borderRadius={'md'}
+            border={theme.borders.base}
+            borderRadius={'lg'}
             h={0}
             flex={1}
             minH={'300px'}

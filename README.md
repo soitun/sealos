@@ -1,14 +1,30 @@
 <h2 align="center">
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./docs/4.0/img/sealos-left-dark.png" />
-  <source media="(prefers-color-scheme: light)" srcset="./docs/4.0/img/sealos-left.png" />
-  <img src="./docs/4.0/img/sealos-left.png" />
-</picture>
-
+  
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/4.0/img/sealos-left-dark.png" />
+    <source media="(prefers-color-scheme: light)" srcset="./docs/4.0/img/sealos-left.png" />
+    <img src="./docs/4.0/img/sealos-left.png" />
+  </picture>
+  
 A Cloud Operating System designed for managing cloud-native applications
 
 </h2>
+
+<div align="center">
+<a
+    href="https://runacap.com/ross-index/annual-2023/"
+    target="_blank"
+    rel="noopener"
+>
+    <img
+        style="width: 260px; height: 56px"
+        src="https://runacap.com/wp-content/uploads/2024/03/Annual_ROSS_badge_black_2023.svg"
+        alt="ROSS Index - Fastest Growing Open-Source Startups | Runa Capital"
+        width="260"
+        height="56"
+    />
+</a>
+</div>
 
 <div align="center">
 
@@ -26,7 +42,7 @@ A Cloud Operating System designed for managing cloud-native applications
 
 </div>
 
-https://github.com/labring/sealos/assets/82700206/b1f8a25a-55cf-4d15-a47b-38cf7d507134
+https://github.com/user-attachments/assets/a7b7ed5c-0e31-4158-8a76-3b161ed70a70
 
 <p align="center">
   <a href="https://sealos.io/docs/Intro">Docs</a> |
@@ -36,33 +52,60 @@ https://github.com/labring/sealos/assets/82700206/b1f8a25a-55cf-4d15-a47b-38cf7d
 
 Sealos['siːləs] is a cloud operating system distribution based on the Kubernetes kernel. Using the cloud like using a personal computer, reducing the cost of the cloud to 1/10 of the original.
 
-## 🚀 Deploy your app on Sealos
+<img width="916" alt="image" src="https://github.com/labring/sealos/assets/8912557/9e8c1d76-718e-4910-a9ab-94f220a61a9c">
 
-[Try online，sealos public cloud](https://cloud.sealos.io)   [sealos private cloud, local hosting](https://sealos.io/zh-Hans/self-hosting)
+## Create any development environment in sealos with one click
 
-* [Easily Deploy Nginx in 30 Seconds on Sealos](https://sealos.io/docs/quick-start/app-deployments/use-app-launchpad)
-* [Start a mysql/pgsql/mongo highly available database in 30 seconds on Sealos](https://sealos.io/docs/quick-start/app-deployments/install-db-with-database)
-* [Running WordPress on Sealos](https://sealos.io/docs/examples/blog-platform/install-wordpress)
-* [Running the Uptime Kuma dial test system on Sealos](https://docs.sealos.io/docs/examples/dial-testing-system/install-uptime-kuma)
-* [Running a low-code platform on Sealos](https://docs.sealos.io/docs/category/low-code-platform)
+1. [Login in](https://cloud.sealos.run) , open sealos Devbox.
+   
+   <img width="656" alt="image" src="https://github.com/user-attachments/assets/79692f6c-315f-4363-9426-b41f541f9a55">
+   
+2. Create a development env, any language, any framework.
+   
+   <img width="1147" alt="image" src="https://github.com/user-attachments/assets/6075bbb0-4765-4786-9154-3adaa139900c">
+   
+3. Use vscode or cursor access to the Env.
+   
+   <img width="864" alt="image" src="https://github.com/user-attachments/assets/e5f9dcdc-5149-4e43-aa13-6c17507fbe9f">
+   
+   <img width="1024" alt="image" src="https://github.com/user-attachments/assets/9a985280-6ff2-48dc-83b9-9abd8f93af17">
 
-![](/docs/4.0/img/app-launchpad.png)
+## Create any database on sealos
 
-🔍 Some Screen Shots of Sealos:
+1. [Login in](https://cloud.sealos.run) , open sealos database.
+   
+   <img width="567" alt="image" src="https://github.com/user-attachments/assets/74ca3ce9-6ef8-4396-b9c2-7c1940bb7e0c">
 
-<div align="center">
+2. Create Database.
 
-| Terminal | App Launchpad |
-| :---: | :---: |
-| ![](/docs/4.0/img/terminal.webp) | ![](/docs/4.0/img/app-launchpad-1.webp) |
-| Database | Serverless |
-| ![](/docs/4.0/img/database.webp) | ![](/docs/4.0/img/laf.webp) |
+   <img width="874" alt="image" src="https://github.com/user-attachments/assets/4cc88a54-70e6-458f-9766-4578774e7f81">
 
-</div>
+3. Access your database.
+
+   <img width="1430" alt="image" src="https://github.com/user-attachments/assets/bcf54218-f4f4-4c89-a107-0bbde6f92d67">
+
+## Deploy any docker image on sealos
+
+1. [Login in](https://cloud.sealos.run) , open sealos App launchpad.
+
+  <img width="567" alt="image" src="https://github.com/user-attachments/assets/5f6481c0-05c6-4892-a096-94b613cee73c">
+
+2. Deploy a docker image, ingress, deployment...
+
+   <img width="971" alt="image" src="https://github.com/user-attachments/assets/a291571f-d9fe-42e5-812e-3d8f274a97ca">
+
+3. Access your service.
+
+   <img width="1016" alt="image" src="https://github.com/user-attachments/assets/a54884cf-a1e8-4178-88af-655234ec7eef">
+
+## Install
+
+* Install Sealos cloud: [Self hosting](https://sealos.io/self-hosting)
+* Install Kubernetes and kubernetes lifecycle managemant: [One command install kubernetes HA cluster](https://sealos.io/docs/self-hosting/lifecycle-management/quick-start/deploy-kubernetes#install-single-node-kubernetes)
 
 ## 💡 Core features
 
-- 🚀 **Application Management**: Easy management and quick release of publicly accessible distributed applications in the app store.
+- 🚀 **Application Management**: Easy management and quick release of publicly accessible distributed applications in the templates marketplace.
 - 🗄️ **Database Management**: Create high-availability databases in seconds, offering support for MySQL, PostgreSQL, MongoDB, and Redis.
 - 🌥️ **Cloud Universality**: Equally effective in both public and private cloud, enabling a seamless transition of traditional applications to the cloud.
 
@@ -77,12 +120,12 @@ Sealos['siːləs] is a cloud operating system distribution based on the Kubernet
 
 + 🌐 Visit the [Sealos website](https://sealos.io/) for full documentation and useful links.
 + 💬 Join our [Discord server](https://discord.gg/qzBmGGZGk7) is to chat with Sealos developers and other Sealos users. This is a good place to learn about Sealos and Kubernetes, ask questions, and share your experiences.
-+ 🐦 Tweet at @sealosio on [Twitter](https://twitter.com/sealosio) and follow us.
++ 🐦 Tweet at @Sailos_io on [Twitter](https://twitter.com/Sailos_io) and follow us.
 + 🐞 Create [GitHub Issues](https://github.com/labring/sealos/issues/new/choose) for bug reports and feature requests.
 
 ## 🚧 Roadmap
 
-Sealos maintains a [public roadmap](https://github.com/orgs/labring/projects/4/views/9). It gives a a high-level view of the main priorities for the project, the maturity of different features and projects, and how to influence the project direction.
+Sealos maintains a [public roadmap](https://github.com/orgs/labring/projects/4/views/9). It gives a high-level view of the main priorities for the project, the maturity of different features and projects, and how to influence the project direction.
 
 ## 👩‍💻 Contributing & Development
 

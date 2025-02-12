@@ -26,10 +26,10 @@ env:
 jobs:
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Detect package manager
         id: detect-package-manager
@@ -69,5 +69,5 @@ jobs:
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }} #Required
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }} #Required
           github-comment: false
-          vercel-args: '--prod'
-          working-directory: ${{ env.BUILD_PATH }}/build
+          vercel-args: './build --prod --local-config ./vercel.json'
+          working-directory: ${{ env.BUILD_PATH }}

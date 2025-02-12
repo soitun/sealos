@@ -3,7 +3,7 @@ import { getInstanceByName } from '@/api/instance';
 import { templateDisplayNameKey } from '@/constants/keys';
 import { useToast } from '@/hooks/useToast';
 import { useResourceStore } from '@/store/resource';
-import { TemplateInstanceType } from '@/types/app';
+import { ApplicationType, TemplateInstanceType } from '@/types/app';
 import {
   Box,
   Button,
@@ -20,11 +20,14 @@ import {
   useDisclosure
 } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
-import JSYAML from 'js-yaml';
+import JsYaml from 'js-yaml';
 import { useTranslation } from 'next-i18next';
 import { useRouter } from 'next/router';
 import { useRef, useState } from 'react';
 import DelModal from './delDodal';
+import { useSearchStore } from '@/store/search';
+import { refetchIntervalTime } from './appList';
+import useSessionStore from '@/store/session';
 
 export default function Header({ instanceName }: { instanceName: string }) {
   const router = useRouter();
@@ -39,11 +42,14 @@ export default function Header({ instanceName }: { instanceName: string }) {
   } = useDisclosure();
   const [displayName, setDisplayName] = useState('');
   const yamlCR = useRef<TemplateInstanceType>();
+  const { setAppType } = useSearchStore();
+  const { session } = useSessionStore();
 
   const { data, refetch } = useQuery(
-    ['getInstanceByName', instanceName],
+    ['getInstanceByName', instanceName, session?.kubeconfig],
     () => getInstanceByName(instanceName),
     {
+      refetchInterval: refetchIntervalTime,
       onSuccess(data) {
         yamlCR.current = data.yamlCR;
         setDisplayName(data?.displayName || instanceName);
@@ -59,7 +65,7 @@ export default function Header({ instanceName }: { instanceName: string }) {
         if (displayName) {
           yamlCR.current.metadata.labels[templateDisplayNameKey] = displayName;
         }
-        const yaml = JSYAML.dump(yamlCR.current);
+        const yaml = JsYaml.dump(yamlCR.current);
         await postDeployApp([yaml], 'replace');
         refetch();
         toast({
@@ -93,7 +99,10 @@ export default function Header({ instanceName }: { instanceName: string }) {
         height="36px"
         viewBox="0 0 35 36"
         fill="#5A646E"
-        onClick={() => router.push('/app')}
+        onClick={() => {
+          setAppType(ApplicationType.MyApp);
+          router.push('/app');
+        }}
       >
         <path d="M20.3207 27L11.6118 18L20.3207 9L22.3527 11.1L15.676 18L22.3527 24.9L20.3207 27Z" />
       </Icon>
@@ -146,25 +155,22 @@ export default function Header({ instanceName }: { instanceName: string }) {
         </Text>
       </Box>
 
-      <Flex
+      <Button
+        variant={'outline'}
         ml="auto"
-        w="156px"
-        h="42px"
-        justifyContent={'center'}
-        alignItems={'center'}
+        w="140px"
+        h="40px"
         cursor={'pointer'}
-        background={'#FFF'}
-        borderRadius={'4px'}
-        border={'1px solid #DEE0E2'}
         onClick={onOpenDelModal}
+        leftIcon={
+          <Icon width="16px" height="17px" viewBox="0 0 16 17" fill="currentcolor">
+            <path d="M4.66667 14.5C4.30001 14.5 3.98601 14.3693 3.72467 14.108C3.46334 13.8467 3.33289 13.5329 3.33334 13.1667V4.5H2.66667V3.16667H6.00001V2.5H10V3.16667H13.3333V4.5H12.6667V13.1667C12.6667 13.5333 12.536 13.8473 12.2747 14.1087C12.0133 14.37 11.6996 14.5004 11.3333 14.5H4.66667ZM11.3333 4.5H4.66667V13.1667H11.3333V4.5ZM6.00001 11.8333H7.33334V5.83333H6.00001V11.8333ZM8.66667 11.8333H10V5.83333H8.66667V11.8333Z" />
+          </Icon>
+        }
       >
-        <Icon width="16px" height="17px" viewBox="0 0 16 17" fill="#121416">
-          <path d="M4.66667 14.5C4.30001 14.5 3.98601 14.3693 3.72467 14.108C3.46334 13.8467 3.33289 13.5329 3.33334 13.1667V4.5H2.66667V3.16667H6.00001V2.5H10V3.16667H13.3333V4.5H12.6667V13.1667C12.6667 13.5333 12.536 13.8473 12.2747 14.1087C12.0133 14.37 11.6996 14.5004 11.3333 14.5H4.66667ZM11.3333 4.5H4.66667V13.1667H11.3333V4.5ZM6.00001 11.8333H7.33334V5.83333H6.00001V11.8333ZM8.66667 11.8333H10V5.83333H8.66667V11.8333Z" />
-        </Icon>
-        <Text pl="8px " color={'#24282C'} fontWeight={600}>
-          {t('Unload')}
-        </Text>
-      </Flex>
+        {t('Unload')}
+      </Button>
+
       <Modal isOpen={isOpen} onClose={onClose}>
         <ModalOverlay />
         <ModalContent>

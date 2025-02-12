@@ -40,7 +40,7 @@ const ChartTemplate = ({
     >
       {ChartData?.result?.xData?.length > 0 ? (
         <Flex flexDirection={'column'} h="100%">
-          <Box fontSize={'12px'} fontWeight={500} color={'#24282C'} mb="16px">
+          <Box fontSize={'12px'} fontWeight={500} color={'grayModern.900'} mb="16px">
             {t(chartTitle)}
             {unit ? `(${unit})` : ''}
           </Box>
@@ -90,7 +90,7 @@ const ChartTemplate = ({
           </Box>
           <Flex justifyContent={'center'} alignItems={'center'} flexDirection={'column'} flex={1}>
             <MyIcon name={'noEvents'} color={'transparent'} width={'36px'} height={'36px'} />
-            <Box pt={'8px'}>{t('No Data Available')}</Box>
+            <Box pt={'8px'}>{t('no_data_available')}</Box>
           </Flex>
         </Flex>
       )}

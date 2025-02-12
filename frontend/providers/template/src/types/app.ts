@@ -5,12 +5,14 @@ export type TemplateType = {
     name: string;
   };
   spec: {
-    gitRepo: string; // new
-    templateType: 'inline'; // new
-    fileName: string; // new
-    filePath: string; // new
+    // local json data
+    fileName: string;
+    filePath: string;
     deployCount?: number;
-
+    // instance
+    categories?: string[];
+    templateType: 'inline';
+    gitRepo: string;
     template_type?: string;
     author: string;
     title: string;
@@ -19,14 +21,14 @@ export type TemplateType = {
     icon: string;
     description: string;
     draft: boolean;
-    defaults: Record<
+    defaults?: Record<
       string,
       {
         type: string;
         value: string;
       }
     >;
-    inputs: Record<
+    inputs?: Record<
       string,
       {
         description: string;
@@ -35,25 +37,29 @@ export type TemplateType = {
         required: boolean;
       }
     >;
+    locale?: string;
+    i18n?: Record<string, { [key: string]: string }>;
   };
 };
 
 export type TemplateSourceType = {
-  source: {
-    defaults: Record<
-      string,
-      {
-        type: string;
-        value: string;
-      }
-    >;
-    inputs: FormSourceInput[];
-    SEALOS_CERT_SECRET_NAME: string;
-    SEALOS_CLOUD_DOMAIN: string;
-    SEALOS_NAMESPACE: string;
-  };
-  yamlList: any[];
+  source: SourceType;
+  appYaml: string;
   templateYaml: TemplateType;
+};
+
+export type SourceType = {
+  defaults: Record<
+    string,
+    {
+      type: string;
+      value: string;
+    }
+  >;
+  inputs: FormSourceInput[];
+  SEALOS_CERT_SECRET_NAME: string;
+  SEALOS_CLOUD_DOMAIN: string;
+  SEALOS_NAMESPACE: string;
 };
 
 export type ProcessedTemplateSourceType = {
@@ -82,7 +88,9 @@ export type FormSourceInput = {
   key: string;
   label: string;
   required: boolean;
-  type: string;
+  type: string; // string | number | 'choice' | boolean
+  options?: string[];
+  if?: string;
 };
 
 export type TemplateInstanceType = {
@@ -94,6 +102,7 @@ export type TemplateInstanceType = {
     labels?: Record<string, string>;
   };
   spec: {
+    categories: string[];
     gitRepo: string;
     templateType: string;
     author: string;
@@ -144,4 +153,40 @@ export type InstanceListItemType = {
   url: string;
   yamlCR: TemplateInstanceType;
   displayName?: string;
+};
+
+export enum ApplicationType {
+  All = 'all',
+  MyApp = 'myapp'
+}
+
+export type SlideDataType = {
+  title: string;
+  desc: string;
+  bg: string;
+  image: string;
+  borderRadius: string;
+  icon: string;
+  templateName: string;
+};
+
+export type SideBarMenuType = {
+  id: string;
+  value: string;
+  type: ApplicationType;
+};
+
+export type SystemConfigType = {
+  showCarousel: boolean;
+  slideData: SlideDataType[];
+};
+
+export type CheckQuotaType = {
+  cpu: number;
+  memory: number;
+  storage: number;
+  gpu?: {
+    type: string;
+    amount: number;
+  };
 };

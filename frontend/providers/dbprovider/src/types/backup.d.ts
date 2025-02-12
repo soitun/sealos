@@ -38,6 +38,7 @@ export interface BackupCRItemType {
     labels: Record<string, string>;
     name: string;
     uid: string;
+    namespace: string;
   };
   spec: {
     backupPolicyName: string;
@@ -58,11 +59,22 @@ export interface BackupCRItemType {
 export type AutoBackupType = 'day' | 'hour' | 'week';
 
 export type AutoBackupFormType = {
-  start: boolean;
-  type: AutoType;
+  start: boolean; // enable auto backup
+  type: AutoBackupType;
   week: string[];
   hour: string;
   minute: string;
   saveTime: number;
   saveType: string;
+};
+
+export type BackupRepoCRItemType = {
+  kind: 'BackupRepo';
+  metadata: {
+    annotations: Record<string, string>;
+    creationTimestamp: Date;
+    labels: Record<string, string>;
+    name: string;
+    uid: string;
+  };
 };

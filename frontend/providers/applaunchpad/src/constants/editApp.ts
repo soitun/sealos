@@ -15,7 +15,7 @@ export const editModeMap = (isEdit: boolean) => {
 
   return {
     title: 'Application Deployment',
-    applyBtnText: 'Deploy',
+    applyBtnText: 'Deploy Application',
     applyMessage: 'Confirm Deploy Application?',
     applySuccess: 'Deployment Successful',
     applyError: 'Deployment Failed'
@@ -23,13 +23,14 @@ export const editModeMap = (isEdit: boolean) => {
 };
 
 export const defaultEditVal: AppEditType = {
+  kind: 'deployment',
   appName: 'hello-world',
   imageName: 'nginx',
   runCMD: '',
   cmdParam: '',
   replicas: 1,
-  cpu: 100,
-  memory: 64,
+  cpu: 200,
+  memory: 256,
   networks: [
     {
       networkName: '',
@@ -38,7 +39,8 @@ export const defaultEditVal: AppEditType = {
       protocol: 'HTTP',
       openPublicDomain: false,
       publicDomain: '',
-      customDomain: ''
+      customDomain: '',
+      domain: ''
     }
   ],
   envs: [],
@@ -57,11 +59,14 @@ export const defaultEditVal: AppEditType = {
     serverAddress: 'docker.io'
   },
   storeList: [],
+  volumes: [],
+  volumeMounts: [],
   gpu: {
     manufacturers: 'nvidia',
     type: '',
     amount: 1
-  }
+  },
+  labels: {}
 };
 
 export const GpuAmountMarkList = [

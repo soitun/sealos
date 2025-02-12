@@ -32,7 +32,7 @@ jobs:
       name: Preview
       url: ${{ steps.vercel-action.outputs.preview-url }}
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     # Job outputs
     outputs:
@@ -40,7 +40,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -86,14 +86,14 @@ jobs:
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }} #Required
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }} #Required
           github-comment: false
-          # vercel-args: '--local-config vercel.json' # Optional
-          working-directory: ${{ env.BUILD_PATH }}/build
+          vercel-args: './build --local-config ./vercel.json' # Optional
+          working-directory: ${{ env.BUILD_PATH }}
 
   docsOutput:
     needs: [ build ]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}

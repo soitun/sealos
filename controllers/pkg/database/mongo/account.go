@@ -22,13 +22,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labring/sealos/controllers/pkg/types"
+
+	"github.com/labring/sealos/controllers/pkg/utils/env"
+
 	"github.com/labring/sealos/controllers/pkg/common"
 	"github.com/labring/sealos/controllers/pkg/database"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 
-	accountv1 "github.com/labring/sealos/controllers/account/api/v1"
-	"github.com/labring/sealos/controllers/pkg/crypto"
 	"github.com/labring/sealos/controllers/pkg/resources"
 	"github.com/labring/sealos/controllers/pkg/utils/logger"
 
@@ -40,12 +42,23 @@ import (
 )
 
 const (
+	EnvAccountDBName = "ACCOUNT_DB_NAME"
+	EnvTrafficDBName = "TRAFFIC_DB_NAME"
+	EnvCVMDBName     = "CVM_DB_NAME"
+	EnvCVMConn       = "CVM_DB_CONN"
+	EnvTrafficConn   = "TRAFFIC_CONN"
+)
+
+const (
 	DefaultAccountDBName  = "sealos-resources"
-	DefaultTrafficDBName  = "sealos-networkmanager-synchronizer"
+	DefaultTrafficDBName  = "sealos-networkmanager"
 	DefaultAuthDBName     = "sealos-auth"
+	DefaultCVMDBName      = "sealos-cvm"
+	DefaultCVMConn        = "cvm"
 	DefaultMeteringConn   = "metering"
 	DefaultMonitorConn    = "monitor"
 	DefaultBillingConn    = "billing"
+	DefaultObjTrafficConn = "objectstorage-traffic"
 	DefaultUserConn       = "user"
 	DefaultPricesConn     = "prices"
 	DefaultPropertiesConn = "properties"
@@ -53,32 +66,56 @@ const (
 	DefaultTrafficConn = "traffic"
 )
 
-const DefaultRetentionDay = 30
-
-// override this value at build time
-const defaultCryptoKey = "Af0b2Bc5e9d0C84adF0A5887cF43aB63"
-
-var cryptoKey = defaultCryptoKey
-
 type mongoDB struct {
 	Client            *mongo.Client
 	AccountDB         string
 	TrafficDB         string
 	AuthDB            string
+	CvmDB             string
+	CvmConn           string
 	UserConn          string
 	MonitorConnPrefix string
 	MeteringConn      string
 	BillingConn       string
-	PricesConn        string
+	ObjTrafficConn    string
 	PropertiesConn    string
 	TrafficConn       string
 }
 
+type BillingRecordQueryItem struct {
+	Time                         metav1.Time `json:"time" bson:"time"`
+	BillingRecordQueryItemInline `json:",inline"`
+}
+
+type BillingRecordQueryItemInline struct {
+	Name      string      `json:"name,omitempty" bson:"name,omitempty"`
+	OrderID   string      `json:"order_id" bson:"order_id"`
+	Namespace string      `json:"namespace,omitempty" bson:"namespace,omitempty"`
+	Type      common.Type `json:"type" bson:"type"`
+	AppType   string      `json:"appType,omitempty" bson:"appType,omitempty"`
+	Costs     Costs       `json:"costs,omitempty" bson:"costs,omitempty"`
+	//Amount = PaymentAmount + GiftAmount
+	Amount int64 `json:"amount,omitempty" bson:"amount"`
+	// when Type = Recharge, PaymentAmount is the amount of recharge
+	Payment *PaymentForQuery `json:"payment,omitempty" bson:"payment,omitempty"`
+}
+
+type Costs map[string]int64
+
+type PaymentForQuery struct {
+	Amount int64 `json:"amount,omitempty" bson:"amount,omitempty"`
+}
+
+const (
+	// Consumption 消费
+	Consumption common.Type = iota
+)
+
 type AccountBalanceSpecBSON struct {
 	// Time    metav1.Time `json:"time" bson:"time"`
 	// If the Time field is of the time. time type, it cannot be converted to json crd, so use metav1.Time. However, metav1.Time cannot be inserted into mongo, so you need to convert it to time.Time
-	Time                                   time.Time `json:"time" bson:"time"`
-	accountv1.BillingRecordQueryItemInline `json:",inline" bson:",inline"`
+	Time                         time.Time `json:"time" bson:"time"`
+	BillingRecordQueryItemInline `json:",inline" bson:",inline"`
 }
 
 func (m *mongoDB) Disconnect(ctx context.Context) error {
@@ -86,9 +123,13 @@ func (m *mongoDB) Disconnect(ctx context.Context) error {
 }
 
 func (m *mongoDB) GetBillingLastUpdateTime(owner string, _type common.Type) (bool, time.Time, error) {
+	// skip cvm billing time
 	filter := bson.M{
 		"owner": owner,
 		"type":  _type,
+		"app_type": bson.M{
+			"$ne": resources.AppType[resources.CVM],
+		},
 	}
 	findOneOptions := options.FindOne().SetSort(bson.D{primitive.E{Key: "time", Value: -1}})
 	var result bson.M
@@ -106,6 +147,87 @@ func (m *mongoDB) GetBillingLastUpdateTime(owner string, _type common.Type) (boo
 	}
 
 	return false, time.Time{}, fmt.Errorf("failed to convert time field to primitive.DateTime: %v", result["time"])
+}
+
+func (m *mongoDB) GetOwnersRecentUpdates(ownerList []string, checkTime time.Time) ([]string, error) {
+	// MongoDB filter
+	filter := bson.M{
+		"owner": bson.M{"$in": ownerList},
+		"type":  common.Consumption,
+		"app_type": bson.M{
+			"$nin": []int{int(resources.AppType[resources.CVM]), int(resources.AppType[resources.LLMToken])},
+		},
+	}
+
+	// Aggregate query: Group by owner to get the latest time
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: filter}},
+		{{Key: "$sort", Value: bson.D{{Key: "owner", Value: 1}, {Key: "time", Value: -1}}}}, // Sort by owner first, then by time in descending order
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: "$owner"},
+			{Key: "lastUpdateTime", Value: bson.D{{Key: "$first", Value: "$time"}}}, // fetch latest Time
+		}}},
+	}
+	// execute aggregate query
+	cursor, err := m.getBillingCollection().Aggregate(context.Background(), pipeline)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute aggregate query: %w", err)
+	}
+	defer cursor.Close(context.Background())
+
+	// get all the data out at once
+	var results []struct {
+		Owner         string             `bson:"_id"`
+		LastUpdateRaw primitive.DateTime `bson:"lastUpdateTime"`
+	}
+	if err := cursor.All(context.Background(), &results); err != nil {
+		return nil, fmt.Errorf("failed to decode cursor: %w", err)
+	}
+
+	// use map to store query results
+	latestUpdates := make(map[string]time.Time, len(results))
+	for _, result := range results {
+		latestUpdates[result.Owner] = result.LastUpdateRaw.Time()
+	}
+
+	// **In-memory processing: Filters owners that have been updated since checkTime**
+	var updatedOwners []string
+	for _, owner := range ownerList {
+		lastUpdateTime, exists := latestUpdates[owner]
+		if exists && (lastUpdateTime.After(checkTime) || lastUpdateTime.Equal(checkTime)) {
+			updatedOwners = append(updatedOwners, owner)
+		}
+	}
+	return updatedOwners, nil
+}
+
+func (m *mongoDB) GetTimeUsedNamespaceList(startTime, endTime time.Time) ([]string, error) {
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "time", Value: bson.D{{Key: "$gte", Value: startTime}, {Key: "$lt", Value: endTime}}}}}},
+		{{Key: "$group", Value: bson.D{{Key: "_id", Value: "$category"}}}},
+		{{Key: "$project", Value: bson.D{{Key: "_id", Value: 0}, {Key: "namespace", Value: "$_id"}}}},
+	}
+	cursor, err := m.getMonitorCollection(startTime).Aggregate(context.Background(), pipeline)
+	if err != nil {
+		return nil, fmt.Errorf("aggregate error: %v", err)
+	}
+	defer cursor.Close(context.Background())
+
+	var namespaces []string
+	for cursor.Next(context.Background()) {
+		var result struct {
+			Namespace string `bson:"namespace"`
+		}
+		err := cursor.Decode(&result)
+		if err != nil {
+			return nil, fmt.Errorf("decode error: %v", err)
+		}
+		namespaces = append(namespaces, result.Namespace)
+	}
+	if err = cursor.Err(); err != nil {
+		return nil, fmt.Errorf("cursor error: %v", err)
+	}
+	return namespaces, nil
 }
 
 func (m *mongoDB) GetUnsettingBillingHandler(owner string) ([]resources.BillingHandler, error) {
@@ -137,95 +259,19 @@ func (m *mongoDB) GetUnsettingBillingHandler(owner string) ([]resources.BillingH
 	return results, nil
 }
 
-func (m *mongoDB) UpdateBillingStatus(orderID string, status resources.BillingStatus) error {
+func (m *mongoDB) UpdateBillingStatus(orderIDs []string, status resources.BillingStatus) error {
 	// create a query filter
-	filter := bson.M{"order_id": orderID}
+	filter := bson.M{"order_id": bson.M{"$in": orderIDs}}
 	update := bson.M{
 		"$set": bson.M{
 			"status": status,
 		},
 	}
-	_, err := m.getBillingCollection().UpdateOne(context.Background(), filter, update)
+	_, err := m.getBillingCollection().UpdateMany(context.Background(), filter, update)
 	if err != nil {
 		return fmt.Errorf("update error: %v", err)
 	}
 	return nil
-}
-
-func (m *mongoDB) GetBillingHistoryNamespaces(startTime, endTime *time.Time, billType int, owner string) ([]string, error) {
-	filter := bson.M{
-		"owner": owner,
-	}
-	if startTime != nil && endTime != nil {
-		filter["time"] = bson.M{
-			"$gte": startTime.UTC(),
-			"$lte": endTime.UTC(),
-		}
-	}
-	if billType != -1 {
-		filter["type"] = billType
-	}
-
-	pipeline := mongo.Pipeline{
-		{{Key: "$match", Value: filter}},
-		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "namespaces", Value: bson.D{{Key: "$addToSet", Value: "$namespace"}}}}}},
-	}
-
-	cur, err := m.getBillingCollection().Aggregate(context.Background(), pipeline)
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(context.Background())
-
-	if !cur.Next(context.Background()) {
-		return []string{}, nil
-	}
-
-	var result struct {
-		Namespaces []string `bson:"namespaces"`
-	}
-	if err := cur.Decode(&result); err != nil {
-		return nil, err
-	}
-	return result.Namespaces, nil
-}
-
-func (m *mongoDB) GetBillingHistoryNamespaceList(nsHistorySpec *accountv1.NamespaceBillingHistorySpec, owner string) ([]string, error) {
-	filter := bson.M{
-		"owner": owner,
-	}
-	if nsHistorySpec.StartTime != nsHistorySpec.EndTime {
-		filter["time"] = bson.M{
-			"$gte": nsHistorySpec.StartTime.Time.UTC(),
-			"$lte": nsHistorySpec.EndTime.Time.UTC(),
-		}
-	}
-	if nsHistorySpec.Type != -1 {
-		filter["type"] = nsHistorySpec.Type
-	}
-
-	pipeline := mongo.Pipeline{
-		{{Key: "$match", Value: filter}},
-		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "namespaces", Value: bson.D{{Key: "$addToSet", Value: "$namespace"}}}}}},
-	}
-
-	cur, err := m.getBillingCollection().Aggregate(context.Background(), pipeline)
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(context.Background())
-
-	if !cur.Next(context.Background()) {
-		return []string{}, nil
-	}
-
-	var result struct {
-		Namespaces []string `bson:"namespaces"`
-	}
-	if err := cur.Decode(&result); err != nil {
-		return nil, err
-	}
-	return result.Namespaces, nil
 }
 
 func (m *mongoDB) SaveBillings(billing ...*resources.Billing) error {
@@ -235,6 +281,130 @@ func (m *mongoDB) SaveBillings(billing ...*resources.Billing) error {
 	}
 	_, err := m.getBillingCollection().InsertMany(context.Background(), billings)
 	return err
+}
+
+func (m *mongoDB) SaveObjTraffic(obs ...*types.ObjectStorageTraffic) error {
+	traffic := make([]interface{}, len(obs))
+	for i, ob := range obs {
+		traffic[i] = ob
+	}
+	_, err := m.getObjTrafficCollection().InsertMany(context.Background(), traffic)
+	return err
+}
+
+func (m *mongoDB) GetAllLatestObjTraffic(startTime, endTime time.Time) ([]types.ObjectStorageTraffic, error) {
+	pipeline := []bson.M{
+		{
+			"$match": bson.M{
+				"time": bson.M{
+					"$gt":  startTime,
+					"$lte": endTime,
+				},
+			},
+		},
+		{
+			"$sort": bson.M{"time": -1},
+		},
+		{
+			"$group": bson.M{
+				"_id":       bson.M{"user": "$user", "bucket": "$bucket"},
+				"latestDoc": bson.M{"$first": "$$ROOT"},
+			},
+		},
+		{
+			"$replaceRoot": bson.M{"newRoot": "$latestDoc"},
+		},
+	}
+
+	cursor, err := m.getObjTrafficCollection().Aggregate(context.Background(), pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(context.Background())
+
+	var results []types.ObjectStorageTraffic
+	if err = cursor.All(context.Background(), &results); err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
+func (m *mongoDB) HandlerTimeObjBucketSentTraffic(startTime, endTime time.Time, bucket string) (int64, error) {
+	pipeline := []bson.M{
+		{
+			"$match": bson.M{
+				"time": bson.M{
+					"$gt":  startTime,
+					"$lte": endTime,
+				},
+				"bucket": bucket,
+			},
+		},
+		{
+			"$group": bson.M{
+				"_id":       nil,
+				"totalSent": bson.M{"$sum": "$sent"},
+			},
+		},
+	}
+	cursor, err := m.getObjTrafficCollection().Aggregate(context.Background(), pipeline)
+	if err != nil {
+		return 0, err
+	}
+	defer cursor.Close(context.Background())
+
+	var result struct {
+		TotalSent int64 `bson:"totalSent"`
+	}
+	if cursor.Next(context.Background()) {
+		if err := cursor.Decode(&result); err != nil {
+			return 0, err
+		}
+		return result.TotalSent, nil
+	}
+	if err := cursor.Err(); err != nil {
+		return 0, err
+	}
+	return 0, nil
+}
+
+func (m *mongoDB) GetTimeObjBucketBucket(startTime, endTime time.Time) ([]string, error) {
+	pipeline := []bson.M{
+		{
+			"$match": bson.M{
+				"time": bson.M{
+					"$gt":  startTime,
+					"$lte": endTime,
+				},
+			},
+		},
+		{
+			"$group": bson.M{
+				"_id":     nil,
+				"buckets": bson.M{"$addToSet": "$bucket"},
+			},
+		},
+	}
+	cursor, err := m.getObjTrafficCollection().Aggregate(context.Background(), pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(context.Background())
+
+	var result struct {
+		Buckets []string `bson:"buckets"`
+	}
+	if cursor.Next(context.Background()) {
+		if err := cursor.Decode(&result); err != nil {
+			return nil, err
+		}
+		return result.Buckets, nil
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, err
+	}
+	return nil, nil
 }
 
 // InsertMonitor insert monitor data to mongodb collection monitor + time (eg: monitor_20200101)
@@ -251,14 +421,13 @@ func (m *mongoDB) InsertMonitor(ctx context.Context, monitors ...*resources.Moni
 	return err
 }
 
-func (m *mongoDB) GetDistinctMonitorCombinations(startTime, endTime time.Time, namespace string) ([]resources.Monitor, error) {
+func (m *mongoDB) GetDistinctMonitorCombinations(startTime, endTime time.Time) ([]resources.Monitor, error) {
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
 			"time": bson.M{
 				"$gte": startTime.UTC(),
 				"$lt":  endTime.UTC(),
 			},
-			"category": namespace,
 		}}},
 		{{Key: "$group", Value: bson.M{
 			"_id": bson.M{
@@ -267,54 +436,44 @@ func (m *mongoDB) GetDistinctMonitorCombinations(startTime, endTime time.Time, n
 				"type":     "$type",
 			},
 		}}},
+		{{Key: "$project", Value: bson.M{
+			"_id":      0,
+			"category": "$_id.category",
+			"name":     "$_id.name",
+			"type":     "$_id.type",
+		}}},
 	}
 	cursor, err := m.getMonitorCollection(startTime).Aggregate(context.Background(), pipeline)
 	if err != nil {
 		return nil, fmt.Errorf("aggregate error: %v", err)
 	}
 	defer cursor.Close(context.Background())
-	var monitors []resources.Monitor
-	for cursor.Next(context.Background()) {
-		var result = make(map[string]resources.Monitor, 1)
-		if err := cursor.Decode(result); err != nil {
-			return nil, fmt.Errorf("decode error: %v", err)
-		}
-		monitors = append(monitors, result["_id"])
+	if !cursor.Next(context.Background()) {
+		return nil, nil
 	}
-	if err := cursor.Err(); err != nil {
+	var monitors []resources.Monitor
+	if err := cursor.All(context.Background(), &monitors); err != nil {
 		return nil, fmt.Errorf("cursor error: %v", err)
 	}
 	return monitors, nil
 }
 
-func (m *mongoDB) GetAllPricesMap() (map[string]resources.Price, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	cursor, err := m.getPricesCollection().Find(ctx, bson.M{})
+func (m *mongoDB) GetAllPayment() ([]resources.Billing, error) {
+	filter := bson.M{
+		"type":           1,
+		"payment.amount": bson.M{"$gt": 0},
+	}
+
+	cursor, err := m.getBillingCollection().Find(context.Background(), filter)
 	if err != nil {
-		return nil, fmt.Errorf("get all prices error: %v", err)
+		return nil, fmt.Errorf("get all payment error: %v", err)
 	}
-	var prices []struct {
-		Property string `json:"property" bson:"property"`
-		Price    string `json:"price" bson:"price"`
-		Detail   string `json:"detail" bson:"detail"`
+
+	var payments []resources.Billing
+	if err = cursor.All(context.Background(), &payments); err != nil {
+		return nil, fmt.Errorf("get all payment error: %v", err)
 	}
-	if err = cursor.All(ctx, &prices); err != nil {
-		return nil, fmt.Errorf("get all prices error: %v", err)
-	}
-	var pricesMap = make(map[string]resources.Price, len(prices))
-	for i := range prices {
-		price, err := crypto.DecryptInt64WithKey(prices[i].Price, []byte(cryptoKey))
-		if err != nil {
-			return nil, fmt.Errorf("decrypt price error: %v", err)
-		}
-		pricesMap[prices[i].Property] = resources.Price{
-			Price:    price,
-			Detail:   prices[i].Detail,
-			Property: prices[i].Property,
-		}
-	}
-	return pricesMap, nil
+	return payments, nil
 }
 
 func (m *mongoDB) InitDefaultPropertyTypeLS() error {
@@ -343,174 +502,234 @@ func (m *mongoDB) SavePropertyTypes(types []resources.PropertyType) error {
 	return err
 }
 
-/*
-		monitors = append(monitors, &common.Monitor{
-		Category: namespace.Name,
-		Used:     getResourceUsed(podResource),
-		Time:     timeStamp,
-		Type:     resourceMap[name].Type(),
-		Name:     resourceMap[name].Name(),
-	})
-*/
-func (m *mongoDB) GenerateBillingData(startTime, endTime time.Time, prols *resources.PropertyTypeLS, namespaces []string, owner string) (orderID []string, amount int64, err error) {
-	minutes := endTime.Sub(startTime).Minutes()
-
-	groupStage := bson.D{
-		primitive.E{Key: "_id", Value: bson.D{{Key: "type", Value: "$type"}, {Key: "name", Value: "$name"}, {Key: "category", Value: "$category"}}},
-		primitive.E{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
-	}
-
-	projectStage := bson.D{
-		primitive.E{Key: "_id", Value: 0},
-		primitive.E{Key: "type", Value: "$_id.type"},
-		primitive.E{Key: "name", Value: "$_id.name"},
-		primitive.E{Key: "category", Value: "$_id.category"},
-	}
-
-	// initialize the used phase
-	usedStage := bson.M{}
-
-	// Build the $group and $project phases dynamically from EnumMap
-	for key, value := range prols.EnumMap {
-		keyStr := strconv.Itoa(int(key))
-
-		// $max - $min;
-		// When max is not zero, the minimum value other than the zero value is used to prevent some data from obtaining a value in special cases
-		// max-min=0 if the hour has only one data piece or no data piece
-		if value.PriceType == resources.DIF {
-			// for non 0 $min
-			minWithCondition := bson.D{
-				{Key: "$min", Value: bson.D{
-					{Key: "$cond", Value: bson.A{
-						bson.D{{Key: "$eq", Value: bson.A{"$used." + keyStr, 0}}},
-						nil, // 将0值排除在外
-						"$used." + keyStr,
-					}},
-				}},
-			}
-
-			groupStage = append(groupStage,
-				primitive.E{Key: keyStr + "_max", Value: bson.D{{Key: "$max", Value: "$used." + keyStr}}}, // 正常计算$max
-				primitive.E{Key: keyStr + "_min", Value: minWithCondition},
-			)
-
-			// added to the used phase
-			usedStage[keyStr] = bson.D{{Key: "$subtract", Value: bson.A{
-				"$" + keyStr + "_max",
-				"$" + keyStr + "_min",
-			}}}
-			continue
-		}
-		if value.PriceType == resources.SUM {
-			groupStage = append(groupStage, primitive.E{Key: keyStr, Value: bson.D{{Key: "$sum", Value: "$used." + keyStr}}})
-			usedStage[keyStr] = bson.D{{Key: "$toInt", Value: "$" + keyStr}}
-			continue
-		}
-		groupStage = append(groupStage, primitive.E{Key: keyStr, Value: bson.D{{Key: "$sum", Value: "$used." + keyStr}}})
-		usedStage[keyStr] = bson.D{{Key: "$toInt", Value: bson.D{{Key: "$round", Value: bson.D{{Key: "$divide", Value: bson.A{
-			"$" + keyStr, minutes}}}}}}}
-	}
-
-	// add the used phase to the $project phase
-	projectStage = append(projectStage, primitive.E{Key: "used", Value: usedStage})
-
-	// construction-pipeline
-	pipeline := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "time", Value: bson.D{{Key: "$gte", Value: startTime}, {Key: "$lt", Value: endTime}}}, {Key: "category", Value: bson.D{{Key: "$in", Value: namespaces}}}}}},
-		{{Key: "$group", Value: groupStage}},
-		{{Key: "$project", Value: projectStage}},
-	}
-
-	cursor, err := m.getMonitorCollection(startTime).Aggregate(context.Background(), pipeline)
+func (m *mongoDB) GenerateBillingData(startTime, endTime time.Time, prols *resources.PropertyTypeLS, ownerToNS map[string][]string) (map[string][]*resources.Billing, error) {
+	ownerMonitors, err := m.FetchOwnerMonitorRecords(startTime, endTime, ownerToNS)
 	if err != nil {
-		return nil, 0, fmt.Errorf("aggregate error: %v", err)
+		return nil, fmt.Errorf("failed to fetch monitor records: %v", err)
+	}
+	var ownerBillings = make(map[string][]*resources.Billing)
+	for owner, monitors := range ownerMonitors {
+		billings, err := GenerateBillingDataFromRecords(monitors, prols, startTime, endTime, owner)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate billing data: %v", err)
+		}
+		ownerBillings[owner] = billings
+	}
+	return ownerBillings, nil
+}
+
+func (m *mongoDB) FetchOwnerMonitorRecords(startTime, endTime time.Time, ownerToNS map[string][]string) (map[string][]resources.Monitor, error) {
+	// collect all namespaces to avoid repetition
+	nsSet := make(map[string]struct{})
+	for _, nsList := range ownerToNS {
+		for _, ns := range nsList {
+			nsSet[ns] = struct{}{}
+		}
+	}
+	namespaces := make([]string, 0, len(nsSet))
+	for ns := range nsSet {
+		namespaces = append(namespaces, ns)
+	}
+
+	// get all matching monitor records from mongodb
+	collection := m.getMonitorCollection(startTime)
+	filter := bson.M{
+		"time":     bson.M{"$gte": startTime, "$lt": endTime},
+		"category": bson.M{"$in": namespaces}, // 查询所有涉及的 namespaces
+	}
+
+	cursor, err := collection.Find(context.Background(), filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find monitor records: %w", err)
 	}
 	defer cursor.Close(context.Background())
 
-	var appCostsMap = make(map[string]map[uint8][]resources.AppCost)
-	// map[ns/type]int64
-	var nsTypeAmount = make(map[string]int64)
+	// reading mongodb data
+	var allRecords []resources.Monitor
+	if err := cursor.All(context.Background(), &allRecords); err != nil {
+		return nil, fmt.Errorf("failed to decode monitor records: %w", err)
+	}
 
-	for cursor.Next(context.Background()) {
-		var result struct {
-			Type      uint8                 `bson:"type"`
-			Namespace string                `bson:"category"`
-			Name      string                `bson:"name"`
-			Used      resources.EnumUsedMap `bson:"used"`
-		}
-
-		err := cursor.Decode(&result)
-		if err != nil {
-			return nil, 0, fmt.Errorf("decode error: %v", err)
-		}
-
-		//TODO delete
-		//logger.Info("generate billing data", "result", result)
-
-		if _, ok := appCostsMap[result.Namespace]; !ok {
-			appCostsMap[result.Namespace] = make(map[uint8][]resources.AppCost)
-		}
-		if _, ok := appCostsMap[result.Namespace][result.Type]; !ok {
-			appCostsMap[result.Namespace][result.Type] = make([]resources.AppCost, 0)
-		}
-		appCost := resources.AppCost{
-			Used:       result.Used,
-			Name:       result.Name,
-			UsedAmount: make(map[uint8]int64),
-		}
-		// Calculate the amount and set the used value
-		for property := range result.Used {
-			if prop, ok := prols.EnumMap[property]; ok {
-				if prop.UnitPrice > 0 {
-					appCost.UsedAmount[property] = int64(math.Ceil(float64(result.Used[property]) * prop.UnitPrice))
-					appCost.Amount += appCost.UsedAmount[property]
+	// build the mapping of owner monitor data
+	ownerMonitorRecords := make(map[string][]resources.Monitor)
+	for _, record := range allRecords {
+		for owner, nsList := range ownerToNS {
+			// Only the records of the namespace that belong to the owner are saved
+			for _, ns := range nsList {
+				if record.Category == ns {
+					ownerMonitorRecords[owner] = append(ownerMonitorRecords[owner], record)
+					break // avoid duplicate additions
 				}
 			}
 		}
-		if appCost.Amount == 0 {
-			continue
-		}
-		nsTypeAmount[result.Namespace+strconv.Itoa(int(result.Type))] += appCost.Amount
-		appCostsMap[result.Namespace][result.Type] = append(appCostsMap[result.Namespace][result.Type], appCost)
 	}
 
+	return ownerMonitorRecords, nil
+}
+
+func GenerateBillingDataFromRecords(records []resources.Monitor, prols *resources.PropertyTypeLS, startTime, endTime time.Time, owner string) (billings []*resources.Billing, err error) {
+	// Calculate the interval (minutes) to ensure that the divisor is not 0
+	minutes := math.Max(endTime.Sub(startTime).Minutes(), 1)
+
+	// 存储分组后的数据
+	aggregatedMap := make(map[string]*struct {
+		resources.Monitor
+		UsedValues map[uint8][]int64
+		Count      int64
+	})
+
+	// 分组 key 生成规则
+	genGroupKey := func(rec resources.Monitor) string {
+		return fmt.Sprintf("%s/%d/%s", rec.Category, rec.Type, rec.Name)
+	}
+
+	// 遍历所有记录，按分组键聚合
+	for _, rec := range records {
+		key := genGroupKey(rec)
+		if _, ok := aggregatedMap[key]; !ok {
+			aggregatedMap[key] = &struct {
+				resources.Monitor
+				UsedValues map[uint8][]int64
+				Count      int64
+			}{
+				Monitor:    rec,
+				UsedValues: make(map[uint8][]int64),
+				Count:      0,
+			}
+		}
+		aggregatedMap[key].Count++
+		for k, v := range rec.Used {
+			//aggregatedMap[key].UsedValues[k] = append(aggregatedMap[key].UsedValues[k], v)
+			if _, exists := aggregatedMap[key].UsedValues[k]; !exists {
+				aggregatedMap[key].UsedValues[k] = make([]int64, 0, len(records))
+			}
+			aggregatedMap[key].UsedValues[k] = append(aggregatedMap[key].UsedValues[k], v)
+		}
+	}
+
+	// 存储最终计费数据
+	// map[namespace]map[app_type | parent_type/parent_name][]resources.AppCost
+	appCostsMap := make(map[string]map[string][]resources.AppCost)
+	nsTypeAmount := make(map[string]map[string]int64)
+
+	calculateFinalUsed := func(values map[uint8][]int64, prols *resources.PropertyTypeLS, minutes float64) map[uint8]int64 {
+		finalUsed := make(map[uint8]int64)
+		for propKey, vals := range values {
+			if prop, ok := prols.EnumMap[propKey]; ok {
+				finalUsed[propKey] = computeUsedValue(vals, prop, minutes)
+			}
+		}
+		return finalUsed
+	}
+	// 计算最终 Used 数据
+	for _, agg := range aggregatedMap {
+		finalUsed := calculateFinalUsed(agg.UsedValues, prols, minutes)
+		// 计算费用
+		appCost := resources.AppCost{
+			Type:       agg.Type,
+			Name:       agg.Name,
+			Used:       finalUsed,
+			UsedAmount: make(map[uint8]int64),
+		}
+		var totalAmount int64
+		for propKey, usedVal := range finalUsed {
+			if prop, ok := prols.EnumMap[propKey]; ok {
+				if prop.UnitPrice > 0 {
+					feeFloat := float64(usedVal) * prop.UnitPrice
+					if feeFloat > math.MaxInt64 {
+						return nil, fmt.Errorf("fee calculation overflow: %f", feeFloat)
+					}
+					fee := int64(math.Ceil(feeFloat))
+					appCost.UsedAmount[propKey] = fee
+					totalAmount += fee
+				}
+			}
+		}
+		if totalAmount == 0 {
+			continue
+		}
+		appCost.Amount = totalAmount
+		groupKey := strconv.Itoa(int(agg.Type))
+		if agg.ParentType != 0 && agg.ParentName != "" {
+			groupKey = strconv.Itoa(int(agg.ParentType)) + "/" + agg.ParentName
+		}
+		ns := agg.Category
+		if _, ok := nsTypeAmount[ns]; !ok {
+			nsTypeAmount[ns] = make(map[string]int64)
+		}
+		nsTypeAmount[ns][groupKey] += totalAmount
+
+		if _, ok := appCostsMap[ns]; !ok {
+			appCostsMap[ns] = make(map[string][]resources.AppCost)
+		}
+		appCostsMap[ns][groupKey] = append(appCostsMap[ns][groupKey], appCost)
+	}
+	billings = make([]*resources.Billing, 0)
+
+	// 生成 Billing 数据
 	for ns, appCostMap := range appCostsMap {
-		for tp, appCost := range appCostMap {
-			amountt := nsTypeAmount[ns+strconv.Itoa(int(tp))]
-			if amountt == 0 {
+		for tp, appCostList := range appCostMap {
+			amount := nsTypeAmount[ns][tp]
+			if amount <= 0 {
 				continue
 			}
 			id, err := gonanoid.New(12)
 			if err != nil {
-				return nil, 0, fmt.Errorf("generate billing id error: %v", err)
+				return nil, fmt.Errorf("generate billing id error: %v", err)
 			}
-			billing := resources.Billing{
+			parts := strings.Split(tp, "/")
+			appType, _ := strconv.Atoi(parts[0])
+			appName := ""
+			if len(parts) > 1 {
+				appName = parts[1]
+			}
+			billings = append(billings, &resources.Billing{
 				OrderID:   id,
-				Type:      accountv1.Consumption,
+				Type:      Consumption,
 				Namespace: ns,
-				AppType:   tp,
-				AppCosts:  appCost,
-				Amount:    amountt,
+				AppType:   uint8(appType),
+				AppName:   appName,
+				AppCosts:  appCostList,
+				Amount:    amount,
 				Owner:     owner,
 				Time:      endTime,
 				Status:    resources.Settled,
-			}
-			amount += amountt
-			orderID = append(orderID, id)
-			// Insert the billing document
-			_, err = m.getBillingCollection().InsertOne(context.Background(), billing)
-			if err != nil {
-				return nil, 0, fmt.Errorf("insert error: %v", err)
-			}
-			//TODO delete
-			//logger.Info("generate billing data", "billing", billing)
+			})
 		}
 	}
+	return billings, nil
+}
 
-	if err = cursor.Err(); err != nil {
-		return nil, 0, fmt.Errorf("cursor error: %v", err)
+func computeUsedValue(usedValues []int64, prop resources.PropertyType, minutes float64) int64 {
+	switch prop.PriceType {
+	case resources.DIF:
+		var maxVal int64 = -math.MaxInt64
+		var minVal int64 = math.MaxInt64
+		for _, v := range usedValues {
+			if v > maxVal {
+				maxVal = v
+			}
+			if v != 0 && v < minVal {
+				minVal = v
+			}
+		}
+		if maxVal > minVal {
+			return maxVal - minVal
+		}
+		return 0
+	case resources.SUM:
+		var sum int64
+		for _, v := range usedValues {
+			sum += v
+		}
+		return sum
+	default:
+		var sum int64
+		for _, v := range usedValues {
+			sum += v
+		}
+		return int64(math.Round(float64(sum) / minutes))
 	}
-	return orderID, amount, nil
 }
 
 func (m *mongoDB) GetUpdateTimeForCategoryAndPropertyFromMetering(category string, property string) (time.Time, error) {
@@ -532,300 +751,44 @@ func (m *mongoDB) GetUpdateTimeForCategoryAndPropertyFromMetering(category strin
 	return result.Time, nil
 }
 
-func (m *mongoDB) queryBillingRecordsByOrderID(billingRecordQuery *accountv1.BillingRecordQuery, owner string) error {
-	if billingRecordQuery.Spec.OrderID == "" {
-		return fmt.Errorf("order id is empty")
-	}
-	billingColl := m.getBillingCollection()
-	matchStage := bson.D{
-		primitive.E{Key: "$match", Value: bson.D{
-			primitive.E{Key: "order_id", Value: billingRecordQuery.Spec.OrderID},
-			primitive.E{Key: "owner", Value: owner},
-		}},
-	}
-	var billingRecords []accountv1.BillingRecordQueryItem
-	ctx := context.Background()
-
-	cursor, err := billingColl.Aggregate(ctx, bson.A{matchStage})
-	if err != nil {
-		return fmt.Errorf("failed to execute aggregate query: %w", err)
-	}
-	defer cursor.Close(ctx)
-
-	for cursor.Next(ctx) {
-		var bsonRecord resources.Billing
-		if err := cursor.Decode(&bsonRecord); err != nil {
-			return fmt.Errorf("failed to decode billing record: %w", err)
-		}
-		var billingRecord = accountv1.BillingRecordQueryItem{
-			Time: metav1.NewTime(bsonRecord.Time),
-			BillingRecordQueryItemInline: accountv1.BillingRecordQueryItemInline{
-				OrderID:   bsonRecord.OrderID,
-				Type:      bsonRecord.Type,
-				Amount:    bsonRecord.Amount,
-				Namespace: bsonRecord.Namespace,
-			},
-		}
-		switch bsonRecord.Type {
-		case accountv1.Recharge:
-			paymentAmount := billingRecord.Amount
-			if bsonRecord.Payment != nil {
-				paymentAmount = bsonRecord.Payment.Amount
-			}
-			billingRecord.Payment = &accountv1.PaymentForQuery{Amount: paymentAmount}
-			billingRecords = append(billingRecords, billingRecord)
-		case accountv1.TransferOut, accountv1.TransferIn:
-			billingRecords = append(billingRecords, billingRecord)
-		default:
-			for _, cost := range bsonRecord.AppCosts {
-				billingRecord = accountv1.BillingRecordQueryItem{
-					Time: metav1.NewTime(bsonRecord.Time),
-					BillingRecordQueryItemInline: accountv1.BillingRecordQueryItemInline{
-						OrderID:   bsonRecord.OrderID,
-						Type:      bsonRecord.Type,
-						Namespace: bsonRecord.Namespace,
-						AppType:   resources.AppTypeReverse[bsonRecord.AppType],
-						Costs:     resources.ConvertEnumUsedToString(cost.UsedAmount),
-						Amount:    cost.Amount,
-						Name:      cost.Name,
-					},
-				}
-				billingRecords = append(billingRecords, billingRecord)
-			}
-		}
-	}
-
-	billingRecordQuery.Status.Items = billingRecords
-	billingRecordQuery.Status.PageLength = 1
-	billingRecordQuery.Status.TotalCount = len(billingRecords)
-	return nil
-}
-
-func (m *mongoDB) QueryBillingRecords(billingRecordQuery *accountv1.BillingRecordQuery, owner string) (err error) {
-	if billingRecordQuery.Spec.OrderID != "" {
-		return m.queryBillingRecordsByOrderID(billingRecordQuery, owner)
-	}
-	if owner == "" {
-		return fmt.Errorf("owner is empty")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	billingColl := m.getBillingCollection()
-	timeMatchValue := bson.D{primitive.E{Key: "$gte", Value: billingRecordQuery.Spec.StartTime.Time}, primitive.E{Key: "$lte", Value: billingRecordQuery.Spec.EndTime.Time}}
-	matchValue := bson.D{
-		primitive.E{Key: "time", Value: timeMatchValue},
-		primitive.E{Key: "owner", Value: owner},
-	}
-	if billingRecordQuery.Spec.Type != -1 {
-		matchValue = append(matchValue, primitive.E{Key: "type", Value: billingRecordQuery.Spec.Type})
-	}
-	if billingRecordQuery.Spec.Namespace != "" {
-		matchValue = append(matchValue, primitive.E{Key: "namespace", Value: billingRecordQuery.Spec.Namespace})
-	}
-	if billingRecordQuery.Spec.AppType != "" {
-		matchValue = append(matchValue, primitive.E{Key: "app_type", Value: resources.AppType[strings.ToUpper(billingRecordQuery.Spec.AppType)]})
-	}
-	matchStage := bson.D{
-		primitive.E{
-			Key: "$match", Value: matchValue,
-		},
-	}
-
-	// Pipeline for getting the paginated data
-	pipeline := bson.A{
-		matchStage,
-		bson.D{primitive.E{Key: "$sort", Value: bson.D{primitive.E{Key: "time", Value: -1}}}},
-		bson.D{primitive.E{Key: "$skip", Value: (billingRecordQuery.Spec.Page - 1) * billingRecordQuery.Spec.PageSize}},
-		bson.D{primitive.E{Key: "$limit", Value: billingRecordQuery.Spec.PageSize}},
-	}
-
-	pipelineAll := bson.A{
-		matchStage,
-		bson.D{primitive.E{Key: "$group", Value: bson.D{
-			primitive.E{Key: "_id", Value: nil},
-			primitive.E{Key: "result", Value: bson.D{primitive.E{Key: "$sum", Value: 1}}},
-		}}},
-	}
-
-	pipelineCountAndAmount := bson.A{
-		bson.D{{Key: "$match", Value: bson.D{
-			{Key: "time", Value: timeMatchValue},
-			{Key: "owner", Value: owner},
-			{Key: "type", Value: accountv1.Consumption},
-		}}},
-		bson.D{{Key: "$addFields", Value: bson.D{
-			{Key: "costsArray", Value: bson.D{{Key: "$objectToArray", Value: "$costs"}}},
-		}}},
-		bson.D{{Key: "$unwind", Value: "$costsArray"}},
-		bson.D{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: bson.D{
-				{Key: "type", Value: "$type"},
-				{Key: "key", Value: "$costsArray.k"},
-			}},
-			{Key: "total", Value: bson.D{{Key: "$sum", Value: "$costsArray.v"}}},
-			{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
-		}}},
-	}
-
-	pipelineRechargeAmount := bson.A{
-		bson.D{{Key: "$match", Value: bson.D{
-			{Key: "time", Value: timeMatchValue},
-			{Key: "owner", Value: owner},
-			{Key: "type", Value: accountv1.Recharge},
-		}}},
-		bson.D{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: nil},
-			{Key: "totalRechargeAmount", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
-			{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
-		}}},
-	}
-
-	cursor, err := billingColl.Aggregate(ctx, pipeline)
-	if err != nil {
-		return fmt.Errorf("failed to execute aggregate query: %w", err)
-	}
-	defer cursor.Close(ctx)
-
-	var billingRecords []accountv1.BillingRecordQueryItem
-	for cursor.Next(ctx) {
-		var bsonRecord resources.Billing
-		if err := cursor.Decode(&bsonRecord); err != nil {
-			return fmt.Errorf("failed to decode billing record: %w", err)
-		}
-		billingRecord := accountv1.BillingRecordQueryItem{
-			Time: metav1.NewTime(bsonRecord.Time),
-			BillingRecordQueryItemInline: accountv1.BillingRecordQueryItemInline{
-				OrderID:   bsonRecord.OrderID,
-				Namespace: bsonRecord.Namespace,
-				Type:      bsonRecord.Type,
-				AppType:   resources.AppTypeReverse[bsonRecord.AppType],
-				Amount:    bsonRecord.Amount,
-			},
-		}
-		if len(bsonRecord.AppCosts) != 0 {
-			costs := make(map[string]int64)
-			for i := range bsonRecord.AppCosts {
-				for j := range bsonRecord.AppCosts[i].UsedAmount {
-					costs[resources.DefaultPropertyTypeLS.EnumMap[j].Name] += bsonRecord.AppCosts[i].UsedAmount[j]
-				}
-			}
-			billingRecord.Costs = costs
-		}
-		if bsonRecord.Type == accountv1.Recharge {
-			paymentAmount := billingRecord.Amount
-			if bsonRecord.Payment != nil {
-				paymentAmount = bsonRecord.Payment.Amount
-			}
-			billingRecord.Payment = &accountv1.PaymentForQuery{Amount: paymentAmount}
-		}
-		billingRecords = append(billingRecords, billingRecord)
-	}
-
-	totalCount := 0
-
-	// total quantity
-	cursorAll, err := billingColl.Aggregate(ctx, pipelineAll)
-	if err != nil {
-		return fmt.Errorf("failed to execute aggregate all query: %w", err)
-	}
-	defer cursorAll.Close(ctx)
-	for cursorAll.Next(ctx) {
-		var result struct {
-			Result int64 `bson:"result"`
-		}
-		if err := cursorAll.Decode(&result); err != nil {
-			return fmt.Errorf("failed to decode query count record: %w", err)
-		}
-		totalCount = int(result.Result)
-	}
-
-	// Costs Executing the second pipeline for getting the total count, recharge and deduction amount
-	cursorCountAndAmount, err := billingColl.Aggregate(ctx, pipelineCountAndAmount)
-	if err != nil {
-		return fmt.Errorf("failed to execute aggregate query for count and amount: %w", err)
-	}
-	defer cursorCountAndAmount.Close(ctx)
-
-	totalDeductionAmount := make(map[string]int64)
-	totalRechargeAmount := int64(0)
-
-	for cursorCountAndAmount.Next(ctx) {
-		var result struct {
-			ID struct {
-				Type int    `bson:"type"`
-				Key  string `bson:"key"`
-			} `bson:"_id"`
-			Total int64 `bson:"total"`
-		}
-		if err := cursorCountAndAmount.Decode(&result); err != nil {
-			return fmt.Errorf("failed to decode billing record: %w", err)
-		}
-		if result.ID.Type == 0 {
-			totalDeductionAmount[result.ID.Key] = result.Total
-		}
-	}
-
-	// the total amount
-	cursorRechargeAmount, err := billingColl.Aggregate(ctx, pipelineRechargeAmount)
-	if err != nil {
-		return fmt.Errorf("failed to execute aggregate query for recharge amount: %w", err)
-	}
-	defer cursorRechargeAmount.Close(ctx)
-
-	for cursorRechargeAmount.Next(ctx) {
-		var result struct {
-			TotalRechargeAmount int64 `bson:"totalRechargeAmount"`
-			Count               int   `bson:"count"`
-		}
-		if err := cursorRechargeAmount.Decode(&result); err != nil {
-			return fmt.Errorf("failed to decode recharge amount record: %w", err)
-		}
-		totalRechargeAmount = result.TotalRechargeAmount
-	}
-
-	totalPages := (totalCount + billingRecordQuery.Spec.PageSize - 1) / billingRecordQuery.Spec.PageSize
-	if totalCount == 0 {
-		totalPages = 1
-		totalCount = len(billingRecords)
-	}
-	billingRecordQuery.Status.Items, billingRecordQuery.Status.PageLength, billingRecordQuery.Status.TotalCount,
-		billingRecordQuery.Status.RechargeAmount, billingRecordQuery.Status.DeductionAmount = billingRecords, totalPages, totalCount, totalRechargeAmount, totalDeductionAmount
-	return nil
-}
-
 func (m *mongoDB) GetBillingCount(accountType common.Type, startTime, endTime time.Time) (count, amount int64, err error) {
-	filter := bson.M{
-		"type": accountType,
-		"time": bson.M{
-			"$gte": startTime,
-			"$lte": endTime,
+	pipeline := bson.A{
+		bson.M{
+			"$match": bson.M{
+				"type": accountType,
+				"time": bson.M{
+					"$gte": startTime,
+					"$lte": endTime,
+				},
+			},
+		},
+		bson.M{
+			"$group": bson.M{
+				"_id":    nil,
+				"count":  bson.M{"$sum": 1},
+				"amount": bson.M{"$sum": "$amount"},
+			},
 		},
 	}
-	cursor, err := m.getBillingCollection().Find(context.Background(), filter)
+
+	cursor, err := m.getBillingCollection().Aggregate(context.Background(), pipeline)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer cursor.Close(context.Background())
-	var accountBalanceList []AccountBalanceSpecBSON
-	err = cursor.All(context.Background(), &accountBalanceList)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to decode all billing record: %w", err)
+
+	var result struct {
+		Count  int64 `bson:"count"`
+		Amount int64 `bson:"amount"`
 	}
-	for i := range accountBalanceList {
-		count++
-		amount += accountBalanceList[i].Amount
+
+	if cursor.Next(context.Background()) {
+		if err := cursor.Decode(&result); err != nil {
+			return 0, 0, fmt.Errorf("failed to decode aggregation result: %w", err)
+		}
 	}
-	//for cursor.Next(context.Background()) {
-	//    var accountBalance AccountBalanceSpecBSON
-	//    if err := cursor.Decode(&accountBalance); err != nil {
-	//        return 0, 0, err
-	//    }
-	//    count++
-	//    amount += accountBalance.Amount
-	//}
-	return
+
+	return result.Count, result.Amount, nil
 }
 
 func (m *mongoDB) getMeteringCollection() *mongo.Collection {
@@ -842,12 +805,11 @@ func (m *mongoDB) getMonitorCollectionName(collTime time.Time) string {
 	return fmt.Sprintf("%s_%s", m.MonitorConnPrefix, collTime.Format("20060102"))
 }
 
-func (m *mongoDB) getPricesCollection() *mongo.Collection {
-	return m.Client.Database(m.AccountDB).Collection(m.PricesConn)
-}
-
 func (m *mongoDB) getBillingCollection() *mongo.Collection {
 	return m.Client.Database(m.AccountDB).Collection(m.BillingConn)
+}
+func (m *mongoDB) getObjTrafficCollection() *mongo.Collection {
+	return m.Client.Database(m.AccountDB).Collection(m.ObjTrafficConn)
 }
 
 func (m *mongoDB) getPropertiesCollection() *mongo.Collection {
@@ -905,6 +867,21 @@ func (m *mongoDB) CreateTimeSeriesIfNotExist(dbName, collectionName string) erro
 	return m.Client.Database(dbName).RunCommand(context.TODO(), cmd).Err()
 }
 
+func (m *mongoDB) CreateTTLTrafficTimeSeries() error {
+	// Check if the collection already exists
+	if exist, err := m.collectionExist(m.AccountDB, m.ObjTrafficConn); exist || err != nil {
+		return err
+	}
+	// If the collection does not exist, create it
+	cmd := bson.D{
+		primitive.E{Key: "create", Value: m.ObjTrafficConn},
+		primitive.E{Key: "timeseries", Value: bson.D{{Key: "timeField", Value: "time"}}},
+		//default ttl set 30 days
+		primitive.E{Key: "expireAfterSeconds", Value: 30 * 24 * 60 * 60},
+	}
+	return m.Client.Database(m.AccountDB).RunCommand(context.TODO(), cmd).Err()
+}
+
 func (m *mongoDB) DropMonitorCollectionsOlderThan(days int) error {
 	db := m.Client.Database(m.AccountDB)
 	// Get the current time minus the number of days
@@ -941,15 +918,17 @@ func NewMongoInterface(ctx context.Context, URL string) (database.Interface, err
 	err = client.Ping(ctx, nil)
 	return &mongoDB{
 		Client:            client,
-		AccountDB:         DefaultAccountDBName,
-		TrafficDB:         DefaultTrafficDBName,
+		AccountDB:         env.GetEnvWithDefault(EnvAccountDBName, DefaultAccountDBName),
+		TrafficDB:         env.GetEnvWithDefault(EnvTrafficDBName, DefaultTrafficDBName),
+		CvmDB:             env.GetEnvWithDefault(EnvCVMDBName, DefaultCVMDBName),
 		AuthDB:            DefaultAuthDBName,
 		UserConn:          DefaultUserConn,
 		MeteringConn:      DefaultMeteringConn,
 		MonitorConnPrefix: DefaultMonitorConn,
 		BillingConn:       DefaultBillingConn,
-		PricesConn:        DefaultPricesConn,
+		ObjTrafficConn:    DefaultObjTrafficConn,
 		PropertiesConn:    DefaultPropertiesConn,
-		TrafficConn:       DefaultTrafficConn,
+		TrafficConn:       env.GetEnvWithDefault(EnvTrafficConn, DefaultTrafficConn),
+		CvmConn:           env.GetEnvWithDefault(EnvCVMConn, DefaultCVMConn),
 	}, err
 }

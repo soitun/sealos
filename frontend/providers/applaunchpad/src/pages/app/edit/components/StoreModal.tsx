@@ -21,7 +21,8 @@ import { useForm } from 'react-hook-form';
 import MyFormControl from '@/components/FormControl';
 import { useTranslation } from 'next-i18next';
 import { pathToNameFormat } from '@/utils/tools';
-import MyTooltip from '@/components/MyTooltip';
+import { MyTooltip } from '@sealos/ui';
+import { PVC_STORAGE_MAX } from '@/store/static';
 
 export type StoreType = {
   id?: string;
@@ -72,16 +73,18 @@ const StoreModal = ({
 
   return (
     <>
-      <Modal isOpen onClose={closeCb}>
+      <Modal isOpen onClose={closeCb} lockFocusAcrossFrames={false}>
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>{textMap[type].title}</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
             <FormControl mb={5} isInvalid={!!errors.value}>
-              <Box mb={1}>{t('capacity')} </Box>
-              <MyTooltip label={`${t('Storage Range')}: ${minVal}~20 Gi`}>
-                <NumberInput max={20} min={minVal} step={1} position={'relative'}>
+              <Box mb={'8px'} fontSize={'14px'} fontWeight={500} color={'grayModern.900'}>
+                {t('capacity')}
+              </Box>
+              <MyTooltip label={`${t('Storage Range')}: ${minVal}~${PVC_STORAGE_MAX} Gi`}>
+                <NumberInput max={PVC_STORAGE_MAX} min={minVal} step={1} position={'relative'}>
                   <Box
                     position={'absolute'}
                     right={10}
@@ -92,6 +95,16 @@ const StoreModal = ({
                     Gi
                   </Box>
                   <NumberInputField
+                    _hover={{
+                      borderColor: '#85CCFF',
+                      bg: '#F7F8FA'
+                    }}
+                    _focusVisible={{
+                      borderColor: '#219BF4',
+                      boxShadow: '0px 0px 0px 2.4px rgba(33, 155, 244, 0.15)',
+                      bg: '#FFF',
+                      color: '#111824'
+                    }}
                     {...register('value', {
                       required: t('Storage Value can not empty') || 'Storage Value can not empty',
                       min: {
@@ -99,12 +112,12 @@ const StoreModal = ({
                         message: `${t('Min Storage Value')} ${minVal} Gi`
                       },
                       max: {
-                        value: 20,
-                        message: `${t('Max Storage Value')} 20 Gi`
+                        value: PVC_STORAGE_MAX,
+                        message: `${t('Max Storage Value')} ${PVC_STORAGE_MAX} Gi`
                       },
                       valueAsNumber: true
                     })}
-                    max={20}
+                    max={PVC_STORAGE_MAX}
                   />
                   <NumberInputStepper>
                     <NumberIncrementStepper />
@@ -114,9 +127,12 @@ const StoreModal = ({
               </MyTooltip>
             </FormControl>
             <MyFormControl showError errorText={errors.path?.message} pb={2}>
-              <Box mb={1}>{t('mount path')}</Box>
+              <Box mb={'8px'} fontSize={'14px'} fontWeight={500} color={'grayModern.900'}>
+                {t('mount path')}
+              </Box>
               <Input
-                placeholder="如：/data"
+                width={'100%'}
+                placeholder={t('form.storage_path_placeholder')}
                 title={
                   isEditStore
                     ? t('Can not change storage path') || 'Can not change storage path'
@@ -144,7 +160,7 @@ const StoreModal = ({
           </ModalBody>
 
           <ModalFooter>
-            <Button w={'110px'} variant={'primary'} onClick={handleSubmit(successCb)}>
+            <Button w={'88px'} onClick={handleSubmit(successCb)}>
               {t('Confirm')}
             </Button>
           </ModalFooter>

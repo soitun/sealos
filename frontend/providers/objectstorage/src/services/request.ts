@@ -7,6 +7,10 @@ import axios, {
 import type { ApiResp } from './kubernet';
 import { isApiResp } from './kubernet';
 import { getUserKubeConfig } from '@/utils/user';
+export const appLanuchPadClient = axios.create({
+  baseURL: process.env.APP_LAUNCHPAD_URL,
+  timeout: 60000
+});
 
 const request = axios.create({
   baseURL: '/',
@@ -53,6 +57,7 @@ request.interceptors.response.use(
     }
 
     response.data = apiResp.data;
+
     return response.data;
   },
   (error: any) => {

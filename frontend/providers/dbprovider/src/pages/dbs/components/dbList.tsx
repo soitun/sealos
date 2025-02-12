@@ -1,20 +1,32 @@
-import React, { useCallback, useState } from 'react';
-import { useRouter } from 'next/router';
-import { Box, Button, Flex, MenuButton } from '@chakra-ui/react';
-import { DBListItemType } from '@/types/db';
+import { pauseDBByName, restartDB, startDBByName } from '@/api/db';
+import { BaseTable } from '@/components/BaseTable/baseTable';
 import DBStatusTag from '@/components/DBStatusTag';
 import MyIcon from '@/components/Icon';
-import { useTheme } from '@chakra-ui/react';
-import { useGlobalStore } from '@/store/global';
-import { useToast } from '@/hooks/useToast';
-import { restartDB, pauseDBByName, startDBByName } from '@/api/db';
-import MyTable from '@/components/Table';
-import dynamic from 'next/dynamic';
-import MyMenu from '@/components/Menu';
+import { DBComponentNameMap, DBStatusEnum, DBTypeList } from '@/constants/db';
 import { useConfirm } from '@/hooks/useConfirm';
-import { DBStatusEnum, DBComponentNameMap } from '@/constants/db';
+import UpdateModal from '@/pages/db/detail/components/UpdateModal';
+import useEnvStore from '@/store/env';
+import { useGlobalStore } from '@/store/global';
+import { DBListItemType } from '@/types/db';
 import { printMemory } from '@/utils/tools';
+import {
+  Box,
+  Button,
+  Center,
+  Flex,
+  Image,
+  MenuButton,
+  useDisclosure,
+  useTheme
+} from '@chakra-ui/react';
+import { MyTable, SealosMenu, useMessage } from '@sealos/ui';
+import { getCoreRowModel, getFilteredRowModel, useReactTable } from '@tanstack/react-table';
 import { useTranslation } from 'next-i18next';
+import dynamic from 'next/dynamic';
+import { useRouter } from 'next/router';
+import { useCallback, useState, useMemo } from 'react';
+import { ColumnDef } from '@tanstack/react-table';
+import { CustomMenu } from '@/components/BaseTable/customMenu';
 
 const DelModal = dynamic(() => import('@/pages/db/detail/components/DelModal'));
 
@@ -27,13 +39,20 @@ const DBList = ({
 }) => {
   const { t } = useTranslation();
   const { setLoading } = useGlobalStore();
-  const { toast } = useToast();
+  const { message: toast } = useMessage();
   const theme = useTheme();
   const router = useRouter();
-
+  const { SystemEnv } = useEnvStore();
+  const {
+    isOpen: isOpenUpdateModal,
+    onOpen: onOpenUpdateModal,
+    onClose: onCloseUpdateModal
+  } = useDisclosure();
   const [delAppName, setDelAppName] = useState('');
+  const [updateAppName, setUpdateAppName] = useState('');
+
   const { openConfirm: onOpenPause, ConfirmChild: PauseChild } = useConfirm({
-    content: t('Pause Hint')
+    content: t('pause_hint')
   });
 
   const handleRestartApp = useCallback(
@@ -42,12 +61,12 @@ const DBList = ({
         setLoading(true);
         await restartDB({ dbName: db.name, dbType: db.dbType });
         toast({
-          title: t('Restart Success'),
+          title: t('restart_success'),
           status: 'success'
         });
       } catch (error: any) {
         toast({
-          title: typeof error === 'string' ? error : error.message || t('Restart Success'),
+          title: typeof error === 'string' ? error : error.message || t('restart_success'),
           status: 'error'
         });
         console.error(error, '==');
@@ -63,12 +82,12 @@ const DBList = ({
         setLoading(true);
         await pauseDBByName({ dbName: db.name, dbType: db.dbType });
         toast({
-          title: t('Pause Success'),
+          title: t('pause_success'),
           status: 'success'
         });
       } catch (error: any) {
         toast({
-          title: typeof error === 'string' ? error : error.message || t('Pause Error'),
+          title: typeof error === 'string' ? error : error.message || t('pause_error'),
           status: 'error'
         });
         console.error(error);
@@ -85,12 +104,12 @@ const DBList = ({
         setLoading(true);
         await startDBByName({ dbName: db.name, dbType: db.dbType });
         toast({
-          title: t('Start Success'),
+          title: t('start_success'),
           status: 'success'
         });
       } catch (error: any) {
         toast({
-          title: typeof error === 'string' ? error : error.message || t('Start Error'),
+          title: typeof error === 'string' ? error : error.message || t('start_error'),
           status: 'error'
         });
         console.error(error);
@@ -101,180 +120,268 @@ const DBList = ({
     [refetchApps, setLoading, t, toast]
   );
 
-  const columns: {
-    title: string;
-    dataIndex?: keyof DBListItemType;
-    key: string;
-    render?: (item: DBListItemType) => JSX.Element;
-  }[] = [
-    {
-      title: 'Name',
-      key: 'name',
-      render: (item: DBListItemType) => {
-        return (
-          <Box pl={4} color={'myGray.900'} fontSize={'md'}>
-            {item.name}
+  const columns = useMemo<Array<ColumnDef<DBListItemType>>>(
+    () => [
+      {
+        id: 'name',
+        accessorKey: 'name',
+        header: () => t('name'),
+        cell: ({ row }) => (
+          <Box color={'grayModern.900'} fontSize={'md'}>
+            {row.original.name}
           </Box>
-        );
+        )
+      },
+      {
+        accessorKey: 'dbType',
+        header: () => t('Type'),
+        cell: ({ row }) => (
+          <Flex alignItems={'center'} gap={'6px'}>
+            <Image
+              width={'20px'}
+              height={'20px'}
+              alt={row.original.id}
+              src={`/images/${row.original.dbType}.svg`}
+            />
+            {DBTypeList.find((i) => i.id === row.original.dbType)?.label}
+          </Flex>
+        )
+      },
+      {
+        accessorKey: 'status',
+        header: () => t('status'),
+        cell: ({ row }) => (
+          <DBStatusTag conditions={row.original.conditions} status={row.original.status} />
+        )
+      },
+      {
+        accessorKey: 'createTime',
+        header: () => t('creation_time')
+      },
+      {
+        accessorKey: 'cpu',
+        header: () => t('cpu'),
+        cell: ({ row }) => <>{row.original.cpu / 1000}C</>
+      },
+      {
+        accessorKey: 'memory',
+        header: () => t('memory'),
+        cell: ({ row }) => <>{printMemory(row.original.memory)}</>
+      },
+      {
+        accessorKey: 'storage',
+        header: () => t('storage')
+      },
+      {
+        id: 'actions',
+        header: () => t('operation'),
+        cell: ({ row }) => (
+          <Flex key={row.id}>
+            <Button
+              mr={'4px'}
+              height={'32px'}
+              size={'sm'}
+              fontSize={'base'}
+              bg={'grayModern.150'}
+              color={'grayModern.900'}
+              _hover={{ color: 'brightBlue.600' }}
+              leftIcon={<MyIcon name={'detail'} w={'16px'} />}
+              onClick={() =>
+                router.push(`/db/detail?name=${row.original.name}&dbType=${row.original.dbType}`)
+              }
+            >
+              {t('details')}
+            </Button>
+
+            <CustomMenu
+              width={100}
+              Button={
+                <Button
+                  bg={'white'}
+                  _hover={{
+                    bg: 'rgba(17, 24, 36, 0.05)',
+                    color: 'brightBlue.600'
+                  }}
+                  variant={'square'}
+                  w={'32px'}
+                  h={'32px'}
+                >
+                  <MyIcon name={'more'} px={3} />
+                </Button>
+              }
+              menuList={[
+                ...(row.original.status.value === DBStatusEnum.Stopped
+                  ? [
+                      {
+                        child: (
+                          <>
+                            <MyIcon name={'continue'} w={'16px'} />
+                            <Box ml={2}>{t('Continue')}</Box>
+                          </>
+                        ),
+                        onClick: () => handleStartApp(row.original)
+                      }
+                    ]
+                  : [
+                      {
+                        child: (
+                          <>
+                            <MyIcon name={'change'} w={'16px'} />
+                            <Box ml={2}>{t('update')}</Box>
+                          </>
+                        ),
+                        onClick: () => {
+                          if (
+                            row.original.source.hasSource &&
+                            row.original.source.sourceType === 'sealaf'
+                          ) {
+                            setUpdateAppName(row.original.name);
+                            onOpenUpdateModal();
+                          } else {
+                            router.push(`/db/edit?name=${row.original.name}`);
+                          }
+                        },
+                        isDisabled:
+                          row.original.status.value === 'Updating' &&
+                          !row.original.isDiskSpaceOverflow
+                      },
+                      {
+                        child: (
+                          <>
+                            <MyIcon name={'restart'} width={'16px'} />
+                            <Box ml={2}>{t('Restart')}</Box>
+                          </>
+                        ),
+                        onClick: () => handleRestartApp(row.original),
+                        isDisabled: row.original.status.value === 'Updating'
+                      }
+                    ]),
+                ...(row.original.status.value === DBStatusEnum.Running
+                  ? [
+                      {
+                        child: (
+                          <>
+                            <MyIcon name={'pause'} w={'16px'} />
+                            <Box ml={2}>{t('Pause')}</Box>
+                          </>
+                        ),
+                        onClick: onOpenPause(() => handlePauseApp(row.original))
+                      }
+                    ]
+                  : []),
+
+                {
+                  child: (
+                    <>
+                      <MyIcon name={'delete'} w={'16px'} />
+                      <Box ml={2}>{t('Delete')}</Box>
+                    </>
+                  ),
+                  menuItemStyle: {
+                    _hover: {
+                      color: 'red.600',
+                      bg: 'rgba(17, 24, 36, 0.05)'
+                    }
+                  },
+                  onClick: () => setDelAppName(row.original.name),
+                  isDisabled: row.original.status.value === 'Updating'
+                }
+              ]}
+            />
+          </Flex>
+        )
+      }
+    ],
+    []
+  );
+
+  const table = useReactTable({
+    data: dbList,
+    columns,
+    initialState: {
+      columnPinning: {
+        left: ['name'],
+        right: ['actions']
       }
     },
-    {
-      title: 'Type',
-      key: 'dbType',
-      render: (item: DBListItemType) => <>{DBComponentNameMap[item.dbType]}</>
-    },
-    {
-      title: 'Status',
-      key: 'status',
-      render: (item: DBListItemType) => (
-        <DBStatusTag conditions={item.conditions} status={item.status} />
-      )
-    },
-    {
-      title: 'Creation Time',
-      dataIndex: 'createTime',
-      key: 'createTime'
-    },
-    {
-      title: 'CPU',
-      key: 'cpu',
-      render: (item: DBListItemType) => <>{item.cpu / 1000}C</>
-    },
-    {
-      title: 'Memory',
-      key: 'memory',
-      render: (item: DBListItemType) => <>{printMemory(item.memory)}</>
-    },
-    {
-      title: 'Storage',
-      key: 'storage',
-      dataIndex: 'storage'
-    },
-    {
-      title: 'Operation',
-      key: 'control',
-      render: (item: DBListItemType) => (
-        <Flex>
-          <Button
-            mr={5}
-            variant={'base'}
-            leftIcon={<MyIcon name={'detail'} transform={'translateY(-1px)'} />}
-            px={3}
-            onClick={() => router.push(`/db/detail?name=${item.name}&dbType=${item.dbType}`)}
-          >
-            {t('Details')}
-          </Button>
-          <MyMenu
-            width={100}
-            Button={
-              <MenuButton
-                w={'32px'}
-                h={'32px'}
-                borderRadius={'sm'}
-                _hover={{
-                  bg: 'myWhite.400',
-                  color: 'hover.iconBlue'
-                }}
-              >
-                <MyIcon name={'more'} px={3} />
-              </MenuButton>
-            }
-            menuList={[
-              ...(item.status.value === DBStatusEnum.Stopped
-                ? [
-                    {
-                      child: (
-                        <>
-                          <MyIcon name={'continue'} w={'14px'} />
-                          <Box ml={2}>{t('Continue')}</Box>
-                        </>
-                      ),
-                      onClick: () => handleStartApp(item)
-                    }
-                  ]
-                : [
-                    {
-                      child: (
-                        <>
-                          <MyIcon name={'change'} w={'14px'} />
-                          <Box ml={2}>{t('Update')}</Box>
-                        </>
-                      ),
-                      onClick: () => router.push(`/db/edit?name=${item.name}`),
-                      isDisabled: item.status.value === 'Updating'
-                    },
-                    {
-                      child: (
-                        <>
-                          <MyIcon name={'restart'} />
-                          <Box ml={2}>{t('Restart')}</Box>
-                        </>
-                      ),
-                      onClick: () => handleRestartApp(item),
-                      isDisabled: item.status.value === 'Updating'
-                    }
-                  ]),
-              ...(item.status.value === DBStatusEnum.Running
-                ? [
-                    {
-                      child: (
-                        <>
-                          <MyIcon name={'pause'} w={'14px'} />
-                          <Box ml={2}>{t('Pause')}</Box>
-                        </>
-                      ),
-                      onClick: onOpenPause(() => handlePauseApp(item))
-                    }
-                  ]
-                : []),
-
-              {
-                child: (
-                  <>
-                    <MyIcon name={'delete'} w={'12px'} />
-                    <Box ml={2}>{t('Delete')}</Box>
-                  </>
-                ),
-                onClick: () => setDelAppName(item.name),
-                isDisabled: item.status.value === 'Updating'
-              }
-            ]}
-          />
-        </Flex>
-      )
-    }
-  ];
+    // enableColumnPinning: true,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel()
+  });
 
   return (
-    <Box bg={'#F3F4F5'} px={'34px'} minH="100vh">
-      <Flex h={'88px'} alignItems={'center'}>
-        <Box mr={4} p={2} backgroundColor={'#FEFEFE'} border={theme.borders.sm} borderRadius={'sm'}>
-          <MyIcon name="logo" w={'24px'} h={'24px'} />
-        </Box>
-        <Box fontSize={'2xl'} color={'black'}>
+    <Box
+      backgroundColor={'white'}
+      py={'24px'}
+      px={'32px'}
+      h={'full'}
+      w={'full'}
+      borderRadius={'xl'}
+      overflowX={'hidden'}
+      overflowY={'auto'}
+      position={'relative'}
+    >
+      <Flex h={'36px'} alignItems={'center'} mb={'16px'}>
+        <Box fontSize={'xl'} color={'grayModern.900'} fontWeight={'bold'}>
           {t('DBList')}
         </Box>
-        <Box ml={3} color={'gray.500'}>
-          ( {dbList.length} )
-        </Box>
+        <Center
+          ml={'8px'}
+          fontSize={'md'}
+          fontWeight={'bold'}
+          color={'grayModern.900'}
+          bg={'grayModern.150'}
+          borderRadius={'20px'}
+          px={'8px'}
+          py={'2px'}
+          minW={'34px'}
+        >
+          {dbList.length}
+        </Center>
         <Box flex={1}></Box>
-
         <Button
-          flex={'0 0 155px'}
-          h={'40px'}
-          colorScheme={'primary'}
-          leftIcon={<MyIcon name={'plus'} w={'12px'} />}
-          variant={'primary'}
+          minW={'95px'}
+          h={'full'}
+          variant={'solid'}
+          leftIcon={<MyIcon name={'plus'} w={'18px'} h={'18px'} />}
           onClick={() => router.push('/db/edit')}
         >
-          {t('Create DB')}
+          {t('create_db')}
         </Button>
       </Flex>
-      <MyTable columns={columns} data={dbList} />
+
+      <BaseTable
+        table={table}
+        isLoading={false}
+        overflow={'auto'}
+        tdStyle={{
+          height: '64px',
+          _first: {
+            w: '200px'
+          },
+          _last: {
+            w: '140px'
+          }
+        }}
+      />
+
       <PauseChild />
       {!!delAppName && (
-        <DelModal dbName={delAppName} onClose={() => setDelAppName('')} onSuccess={refetchApps} />
+        <DelModal
+          source={dbList.find((i) => i.name === delAppName)?.source}
+          dbName={delAppName}
+          onClose={() => setDelAppName('')}
+          onSuccess={refetchApps}
+        />
       )}
+      <UpdateModal
+        source={dbList.find((i) => i.name === updateAppName)?.source}
+        isOpen={isOpenUpdateModal}
+        onClose={() => {
+          setUpdateAppName('');
+          onCloseUpdateModal();
+        }}
+      />
     </Box>
   );
 };

@@ -2,7 +2,7 @@ import { theme } from '@/constants/theme';
 import { useConfirm } from '@/hooks/useConfirm';
 import { useLoading } from '@/hooks/useLoading';
 import { useGlobalStore } from '@/store/global';
-import { SEALOS_DOMAIN, loadInitData } from '@/store/static';
+import { DESKTOP_DOMAIN, loadInitData } from '@/store/static';
 import { useUserStore } from '@/store/user';
 import { getLangStore, setLangStore } from '@/utils/cookieUtils';
 import { ChakraProvider } from '@chakra-ui/react';
@@ -16,10 +16,11 @@ import NProgress from 'nprogress'; //nprogress module
 import { useEffect, useState } from 'react';
 import { EVENT_NAME } from 'sealos-desktop-sdk';
 import { createSealosApp, sealosApp } from 'sealos-desktop-sdk/app';
-import { getPlatformEnv } from '@/api/platform';
 import '@/styles/reset.scss';
 import 'nprogress/nprogress.css';
 import '@sealos/driver/src/driver.css';
+import { AppEditSyncedFields } from '@/types/app';
+import Script from 'next/script';
 
 //Binding events.
 Router.events.on('routeChangeStart', () => NProgress.start());
@@ -52,7 +53,7 @@ const App = ({ Component, pageProps }: AppProps) => {
   useEffect(() => {
     const response = createSealosApp();
     (async () => {
-      const { SEALOS_DOMAIN, FORM_SLIDER_LIST_CONFIG } = await (() => loadInitData())();
+      const { FORM_SLIDER_LIST_CONFIG, DESKTOP_DOMAIN } = await (() => loadInitData())();
       initFormSliderList(FORM_SLIDER_LIST_CONFIG);
       loadUserSourcePrice();
 
@@ -69,7 +70,7 @@ const App = ({ Component, pageProps }: AppProps) => {
         if (!process.env.NEXT_PUBLIC_MOCK_USER) {
           localStorage.removeItem('session');
           openConfirm(() => {
-            window.open(`https://${SEALOS_DOMAIN}`, '_self');
+            window.open(`https://${DESKTOP_DOMAIN}`, '_self');
           })();
         }
       }
@@ -121,9 +122,12 @@ const App = ({ Component, pageProps }: AppProps) => {
   // record route
   useEffect(() => {
     return () => {
-      setLastRoute(router.asPath);
+      const currentPath = router.asPath;
+      if (router.isReady && !currentPath.includes('/redirect')) {
+        setLastRoute(currentPath);
+      }
     };
-  }, [router.pathname]);
+  }, [router.pathname, router.isReady, setLastRoute]);
 
   useEffect(() => {
     const lang = getLangStore() || 'zh';
@@ -133,19 +137,31 @@ const App = ({ Component, pageProps }: AppProps) => {
   useEffect(() => {
     const setupInternalAppCallListener = async () => {
       try {
-        const event = async (e: MessageEvent) => {
-          const whitelist = [`https://${SEALOS_DOMAIN}`];
+        const event = async (
+          e: MessageEvent<{
+            type?: string;
+            name?: string;
+            formData?: string;
+          }>
+        ) => {
+          const whitelist = [`https://${DESKTOP_DOMAIN}`];
           if (!whitelist.includes(e.origin)) {
             return;
           }
           try {
-            if (e.data?.type === 'InternalAppCall' && e.data?.name) {
-              router.push({
-                pathname: '/app/detail',
-                query: {
-                  name: e.data.name
-                }
-              });
+            if (e.data?.type === 'InternalAppCall') {
+              const { name, formData } = e.data;
+              if (formData) {
+                router.replace({
+                  pathname: '/redirect',
+                  query: { formData }
+                });
+              } else if (name) {
+                router.replace({
+                  pathname: '/app/detail',
+                  query: { name }
+                });
+              }
             }
           } catch (error) {
             console.log(error, 'error');

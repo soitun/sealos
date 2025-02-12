@@ -173,11 +173,12 @@ export const theme = extendTheme(sealosTheme, {
     }
   },
   breakpoints: {
-    sm: '1024px',
-    md: '1280px',
-    lg: '1500px',
-    xl: '1800px',
-    '2xl': '2100px'
+    base: '0px',
+    sm: '640px',
+    md: '768px',
+    lg: '1024px',
+    xl: '1280px',
+    '2xl': '1536px'
   },
   fontSizes: {
     xs: '10px',
@@ -250,19 +251,10 @@ export const theme = extendTheme(sealosTheme, {
     base: '1px solid #DEE0E2',
     md: '1px solid #BDC1C5'
   },
-  radii: {
-    xs: '1px',
-    sm: '2px',
-    base: '2px',
-    md: '4px',
-    lg: '6px'
-  },
   fontWeights: {
     bold: 500
   },
   components: {
-    Button,
-    Input,
     Tooltip,
     Select,
     Switch,

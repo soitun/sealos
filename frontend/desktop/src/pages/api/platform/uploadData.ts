@@ -8,7 +8,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       bd_vid: string;
       main_url: string;
     };
-    const BD_TOKEN = process.env.BD_TOKEN;
+    const BD_TOKEN = global.AppConfig?.desktop.auth?.baiduToken;
 
     if (!BD_TOKEN || !bd_vid) {
       return jsonRes(res, {
@@ -35,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
     ).json();
 
-    console.log('upload data success', data);
+    console.log('upload data:', data, 'result:', result);
     jsonRes(res, {
       data: result
     });

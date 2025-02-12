@@ -17,6 +17,7 @@ import { EVENT_NAME } from 'sealos-desktop-sdk';
 import { createSealosApp, sealosApp } from 'sealos-desktop-sdk/app';
 import useEnvStore from '@/store/env';
 
+import '@sealos/driver/src/driver.css';
 import '@/styles/reset.scss';
 import 'nprogress/nprogress.css';
 
@@ -44,14 +45,14 @@ function App({ Component, pageProps }: AppProps) {
   const { Loading } = useLoading();
   const [refresh, setRefresh] = useState(false);
   const { openConfirm, ConfirmChild } = useConfirm({
-    title: '跳转提示',
-    content: '该应用不允许单独使用，点击确认前往 Sealos Desktop 使用。'
+    title: 'jump_prompt',
+    content: 'not_allow_standalone_use'
   });
 
   useEffect(() => {
     const response = createSealosApp();
     (async () => {
-      const { domain } = await initSystemEnv();
+      const { desktopDomain } = await initSystemEnv();
       try {
         const newSession = JSON.stringify(await sealosApp.getSession());
         const oldSession = localStorage.getItem('session');
@@ -65,7 +66,7 @@ function App({ Component, pageProps }: AppProps) {
         if (!process.env.NEXT_PUBLIC_MOCK_USER) {
           localStorage.removeItem('session');
           openConfirm(() => {
-            window.open(`https://${domain}`, '_self');
+            window.open(`https://${desktopDomain}`, '_self');
           })();
         }
       }
@@ -96,7 +97,7 @@ function App({ Component, pageProps }: AppProps) {
     const changeI18n = async (data: any) => {
       const lastLang = getLangStore();
       const newLang = data.currentLanguage;
-      if (lastLang !== newLang) {
+      if (lastLang !== newLang && typeof i18n?.changeLanguage === 'function') {
         i18n?.changeLanguage(newLang);
         setLangStore(newLang);
         setRefresh((state) => !state);
@@ -138,14 +139,14 @@ function App({ Component, pageProps }: AppProps) {
     const setupInternalAppCallListener = async () => {
       try {
         const event = async (e: MessageEvent) => {
-          const whitelist = [`https://${SystemEnv.domain}`];
+          const whitelist = [`https://${SystemEnv.desktopDomain}`];
           if (!whitelist.includes(e.origin)) {
             return;
           }
           try {
             if (e.data?.type === 'InternalAppCall' && e.data?.name) {
               router.push({
-                pathname: '/db/detail',
+                pathname: '/redirect',
                 query: {
                   name: e.data.name
                 }
@@ -160,7 +161,7 @@ function App({ Component, pageProps }: AppProps) {
       } catch (error) {}
     };
     setupInternalAppCallListener();
-  }, [SystemEnv.domain, router]);
+  }, [SystemEnv.desktopDomain, router]);
 
   return (
     <>

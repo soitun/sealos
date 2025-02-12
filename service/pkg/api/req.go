@@ -31,17 +31,80 @@ type QueryResult struct {
 	} `json:"data"`
 }
 
-var (
-	ErrNoPromHost      = errors.New("unable to get the prometheus host")
-	ErrUncompleteParam = errors.New("at least provide both namespace and query")
-	ErrEmptyKubeconfig = errors.New("empty kubeconfig")
-	ErrNilNs           = errors.New("namespace not found")
-)
+type VMRequest struct {
+	User          string
+	Pwd           string
+	NS            string
+	Type          string
+	LaunchPadName string
+	Range         VMRange
+}
+
+type VMRange struct {
+	Start string `mapstructure:"start"`
+	End   string `mapstructure:"end"`
+	Step  string `mapstructure:"step"`
+	Time  string `mapstructure:"time"`
+}
+
+type LaunchpadQueryResult struct {
+	Status    string `json:"status"`
+	IsPartial bool   `json:"isPartial"`
+	Data      Data   `json:"data"`
+	Stats     Stats  `json:"stats"`
+}
+
+type Data struct {
+	ResultType string   `json:"resultType"`
+	Result     []Result `json:"result"`
+}
+
+type Result struct {
+	Metric map[string]string `json:"metric"`
+	Value  []interface{}     `json:"value"`
+	Values [][]interface{}   `json:"values"`
+}
+
+type Stats struct {
+	SeriesFetched     string `json:"seriesFetched"`
+	ExecutionTimeMsec int    `json:"executionTimeMsec"`
+}
+
+type JSONQuery struct {
+	Key string
+	// There are a total of four modes,"=" equal,"!" Not equal,"~" including,"!~" Not included.
+	Mode  string
+	Value string
+}
+
+type VlogsRequest struct {
+	Time        string      `json:"time"`
+	Namespace   string      `json:"namespace"`
+	App         string      `json:"app"`
+	Limit       string      `json:"limit,omitempty"`
+	JSONMode    string      `json:"jsonMode,omitempty"`
+	StderrMode  string      `json:"stderrMode,omitempty"`
+	NumberMode  string      `json:"numberMode,omitempty"`
+	NumberLevel string      `json:"numberLevel,omitempty"`
+	Pod         []string    `json:"pod,omitempty"`
+	Container   []string    `json:"container,omitempty"`
+	Keyword     string      `json:"keyword,omitempty"`
+	JSONQuery   []JSONQuery `json:"jsonQuery,omitempty"`
+	PodQuery    string      `json:"podQuery,omitempty"`
+}
+
+type VlogsResponse struct {
+	Time      string `json:"_time"`
+	Message   string `json:"_msg"`
+	Container string `json:"container"`
+	Pod       string `json:"pod"`
+	Stream    string `json:"stream"`
+}
 
 var (
 	Mysql = map[string]string{
-		"cpu":           "round(max by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"#\",pod=~\"@-mysql-\\\\d\",container=\"mysql\" }[5m])) / on (pod) (max by (pod) (container_spec_cpu_quota{namespace=~\"#\", pod=~\"@-mysql-\\\\d\",container=\"mysql\"} / 100000)) * 100,0.01)",
-		"memory":        "round(max by (pod)(container_memory_usage_bytes{namespace=~\"#\",pod=~\"@-mysql-\\\\d\",container=\"mysql\"})/ on (pod) (max by (pod) (container_spec_memory_limit_bytes{namespace=~\"#\", pod=~\"@-mysql-\\\\d\", container=\"mysql\"})) * 100,0.01)",
+		"cpu":           "round(sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace=~\"#\",pod=~\"@-mysql-\\\\d\"}) by (pod) / sum(cluster:namespace:pod_cpu:active:kube_pod_container_resource_limits{namespace=~\"#\",pod=~\"@-mysql-\\\\d\"}) by (pod)*100,0.01)",
+		"memory":        "round(sum(container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\",namespace=~\"#\",container!=\"\", image!=\"\",pod=~\"@-mysql-\\\\d\"}) by(pod) / sum(cluster:namespace:pod_memory:active:kube_pod_container_resource_limits{namespace=~\"#\", pod=~\"@-mysql-\\\\d\"}) by (pod) * 100, 0.01)",
 		"disk_capacity": "(max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_capacity_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-mysql-\\\\d\"}))",
 		"disk_used":     "(max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_used_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-mysql-\\\\d\"}))",
 		"disk":          "round((max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_used_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-mysql-\\\\d\"})) / (max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_capacity_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-mysql-\\\\d\"})) * 100, 0.01)",
@@ -56,9 +119,8 @@ var (
 		"table_locks":         "sum(rate(mysql_global_status_table_locks_immediate{namespace=~\"#\", app_kubernetes_io_instance=~\"@\"}[1m])) by (namespace,app_kubernetes_io_instance,pod)",
 	}
 	Pgsql = map[string]string{
-		"cpu": "round(max by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"#\",pod=~\"@-postgresql-\\\\d\" ,container=\"postgresql\"}[5m])) / on (pod) (max by (pod) (container_spec_cpu_quota{namespace=~\"#\", pod=~\"@-postgresql-\\\\d\",container=\"postgresql\"} / 100000)) * 100,0.01)",
-
-		"memory":        "round(max by (pod)(container_memory_usage_bytes{namespace=~\"#\",pod=~\"@-postgresql-\\\\d\",container=\"postgresql\" })/ on (pod) (max by (pod) (container_spec_memory_limit_bytes{namespace=~\"#\", pod=~\"@-postgresql-\\\\d\", container=\"postgresql\"})) * 100,0.01)",
+		"cpu":           "round(sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace=~\"#\",pod=~\"@-postgresql-\\\\d\"}) by (pod) / sum(cluster:namespace:pod_cpu:active:kube_pod_container_resource_limits{namespace=~\"#\",pod=~\"@-postgresql-\\\\d\"}) by (pod)*100,0.01)",
+		"memory":        "round(sum(container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\",namespace=~\"#\",container!=\"\", image!=\"\",pod=~\"@-postgresql-\\\\d\"}) by(pod) / sum(cluster:namespace:pod_memory:active:kube_pod_container_resource_limits{namespace=~\"#\", pod=~\"@-postgresql-\\\\d\"}) by (pod) * 100, 0.01)",
 		"disk":          "round((max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_used_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-postgresql-\\\\d\"})) / (max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_capacity_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-postgresql-\\\\d\"})) * 100, 0.01)",
 		"disk_capacity": "(max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_capacity_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-postgresql-\\\\d\"}))",
 		"disk_used":     "(max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_used_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-postgresql-\\\\d\"}))",
@@ -77,8 +139,8 @@ var (
 	}
 
 	Mongo = map[string]string{
-		"cpu":           "round(max by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"#\",pod=~\"@-mongodb-\\\\d\" ,container=\"mongodb\" }[5m])) / on (pod) (max by (pod) (container_spec_cpu_quota{namespace=~\"#\", pod=~\"@-mongodb-\\\\d\" ,container=\"mongodb\"} / 100000)) * 100,0.01)",
-		"memory":        "round(max by (pod)(container_memory_usage_bytes{namespace=~\"#\",pod=~\"@-mongodb-\\\\d\"  ,container=\"mongodb\"})/ on (pod) (max by (pod) (container_spec_memory_limit_bytes{namespace=~\"#\", pod=~\"@-mongodb-\\\\d\",container=\"mongodb\"})) * 100,0.01)",
+		"cpu":           "round(sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace=~\"#\",pod=~\"@-mongodb-\\\\d\"}) by (pod) / sum(cluster:namespace:pod_cpu:active:kube_pod_container_resource_limits{namespace=~\"#\",pod=~\"@-mongodb-\\\\d\"}) by (pod)*100,0.01)",
+		"memory":        "round(sum(container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\",namespace=~\"#\",container!=\"\", image!=\"\",pod=~\"@-mongodb-\\\\d\"}) by(pod) / sum(cluster:namespace:pod_memory:active:kube_pod_container_resource_limits{namespace=~\"#\", pod=~\"@-mongodb-\\\\d\"}) by (pod) * 100, 0.01)",
 		"disk_capacity": "(max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_capacity_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-mongodb-\\\\d\"}))",
 		"disk":          "round((max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_used_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-mongodb-\\\\d\"})) / (max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_capacity_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-mongodb-\\\\d\"})) * 100, 0.01)",
 		"disk_used":     "(max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_used_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-mongodb-\\\\d\"}))",
@@ -93,8 +155,8 @@ var (
 	}
 
 	Redis = map[string]string{
-		"cpu":           "round(max by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"#\",pod=~\"@-redis-\\\\d\" ,container=\"redis\"}[5m])) / on (pod) (max by (pod) (container_spec_cpu_quota{namespace=~\"#\", pod=~\"@-redis-\\\\d\",container=\"redis\"} / 100000)) * 100,0.01)",
-		"memory":        "round(max by (pod)(container_memory_usage_bytes{namespace=~\"#\",pod=~\"@-redis-\\\\d\",container=\"redis\" })/ on (pod) (max by (pod) (container_spec_memory_limit_bytes{namespace=~\"#\", pod=~\"@-redis-\\\\d\",container=\"redis\"})) * 100,0.01)",
+		"cpu":           "round(sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace=~\"#\",pod=~\"@-redis-\\\\d\"}) by (pod) / sum(cluster:namespace:pod_cpu:active:kube_pod_container_resource_limits{namespace=~\"#\",pod=~\"@-redis-\\\\d\"}) by (pod)*100,0.01)",
+		"memory":        "round(sum(container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\",namespace=~\"#\",container!=\"\", image!=\"\",pod=~\"@-redis-\\\\d\"}) by(pod) / sum(cluster:namespace:pod_memory:active:kube_pod_container_resource_limits{namespace=~\"#\", pod=~\"@-redis-\\\\d\"}) by (pod) * 100, 0.01)",
 		"disk_capacity": "(max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_capacity_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-redis-\\\\d\"}))",
 		"disk":          "round((max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_used_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-redis-\\\\d\"})) / (max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_capacity_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-redis-\\\\d\"})) * 100, 0.01)",
 		"disk_used":     "(max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_used_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-redis-\\\\d\"}))",
@@ -118,10 +180,18 @@ var (
 	}
 
 	Kafka = map[string]string{
-		"cpu":           "round(max by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"#\",pod=~\"@-(kafka-broker|kafka-server|controller)-\\\\d\" ,container=\"kafka\"}[5m])) / on (pod) (max by (pod) (container_spec_cpu_quota{namespace=~\"#\", pod=~\"@-(kafka-broker|kafka-server|controller)-\\\\d\",container=\"kafka\"} / 100000)) * 100,0.01)",
-		"memory":        "round(max by (pod)(container_memory_usage_bytes{namespace=~\"#\",pod=~\"@-(kafka-broker|kafka-server|controller)-\\\\d\",container=\"kafka\" })/ on (pod) (max by (pod) (container_spec_memory_limit_bytes{namespace=~\"#\", pod=~\"@-(kafka-broker|kafka-server|controller)-\\\\d\",container=\"kafka\"})) * 100,0.01)",
+		"cpu":           "round(sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace=~\"#\",pod=~\"@-kafka-\\\\d\"}) by (pod) / sum(cluster:namespace:pod_cpu:active:kube_pod_container_resource_limits{namespace=~\"#\",pod=~\"@-kafka-\\\\d\"}) by (pod)*100,0.01)",
+		"memory":        "round(sum(container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\",namespace=~\"#\",container!=\"\", image!=\"\",pod=~\"@-kafka-\\\\d\"}) by(pod) / sum(cluster:namespace:pod_memory:active:kube_pod_container_resource_limits{namespace=~\"#\", pod=~\"@-kafka-\\\\d\"}) by (pod) * 100, 0.01)",
 		"disk_capacity": "(max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_capacity_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-(kafka-broker|kafka-server)-\\\\d\"}))",
 		"disk":          "round((max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_used_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-(kafka-broker|kafka-server)-\\\\d\"})) / (max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_capacity_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-(kafka-broker|kafka-server)-\\\\d\"})) * 100, 0.01)",
 		"disk_used":     "(max by (persistentvolumeclaim,namespace) (kubelet_volume_stats_used_bytes {namespace=~\"#\", persistentvolumeclaim=~\"data-@-(kafka-broker|kafka-server)-\\\\d\"}))",
 	}
+)
+
+var (
+	ErrNoVMHost        = errors.New("unable to get the victoria-metrics host")
+	ErrNoPromHost      = errors.New("unable to get the prometheus host")
+	ErrUncompleteParam = errors.New("at least provide both namespace and query")
+	ErrEmptyKubeconfig = errors.New("empty kubeconfig")
+	ErrNilNs           = errors.New("namespace not found")
 )

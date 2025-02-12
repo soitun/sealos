@@ -1,4 +1,3 @@
-import Tabs from '@/components/MonitorTabs/index';
 import { DBDetailType } from '@/types/db';
 import { Box, Flex } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
@@ -8,6 +7,7 @@ import RunningTime from './RunningTime';
 import { DBTypeEnum } from '@/constants/db';
 import dayjs from 'dayjs';
 import { useTranslation } from 'next-i18next';
+import { Tabs } from '@sealos/ui';
 
 enum MonitorType {
   resources = 'resources',
@@ -32,27 +32,50 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
   }, []);
 
   return (
-    <Flex h={'100%'} p={'0px 24px 24px 24px'} flexDirection={'column'}>
+    <Flex h={'100%'} flexDirection={'column'}>
       <Flex justifyContent={'space-between'} alignItems={'center'}>
-        <Tabs
-          w={'280px'}
-          list={[
-            { id: MonitorType.resources, label: 'Resources' },
-            { id: MonitorType.status, label: 'Status' },
-            { id: MonitorType.performance, label: 'Performance' }
-          ]}
-          activeId={activeId}
-          onChange={(id) => setActiveId(id as MonitorType)}
-        />
+        <Flex>
+          {[
+            { id: MonitorType.resources, label: t('Resources') },
+            { id: MonitorType.status, label: t('status') },
+            { id: MonitorType.performance, label: t('Performance') }
+          ].map((item) => (
+            <Box
+              key={item.label}
+              mr={'16px'}
+              pb={'6px'}
+              pt={'4px'}
+              borderBottom={'2px solid'}
+              cursor={'pointer'}
+              fontSize={'16px'}
+              fontWeight={'500'}
+              {...(item.id === activeId
+                ? {
+                    color: 'grayModern.900',
+                    borderBottomColor: 'grayModern.900'
+                  }
+                : {
+                    color: 'grayModern.600',
+                    borderBottomColor: 'transparent',
+                    onClick: () => {
+                      setActiveId(item.id);
+                    }
+                  })}
+            >
+              {item.label}
+            </Box>
+          ))}
+        </Flex>
+
         <Box fontSize={'12px'} fontWeight={500} color={'#7B838B'} pr="8px">
-          {t('Update Time')} {currentTime}
+          {t('update_time')} {currentTime}
         </Box>
       </Flex>
       {activeId === MonitorType.resources && (
-        <Box mt={'16px'} overflowY={'scroll'} flex={1}>
+        <Box overflowY={'scroll'} flex={1}>
           <ChartTemplate
             apiUrl="/api/monitor/getMonitorData"
-            chartTitle={'CPU'}
+            chartTitle={'cpu'}
             dbName={dbName}
             dbType={dbType}
             db={db}
@@ -62,7 +85,7 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
           />
           <ChartTemplate
             apiUrl="/api/monitor/getMonitorData"
-            chartTitle={'Memory'}
+            chartTitle={'memory'}
             dbName={dbName}
             dbType={dbType}
             db={db}
@@ -83,7 +106,7 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
           {(dbType === DBTypeEnum.mongodb || dbType === DBTypeEnum.postgresql) && (
             <ChartTemplate
               apiUrl="/api/monitor/getDataBaseSize"
-              chartTitle={'Database Usage'}
+              chartTitle={'database_usage'}
               dbName={dbName}
               dbType={dbType}
               db={db}
@@ -100,14 +123,14 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
             <>
               <ChartTemplate
                 apiUrl="/api/monitor/getCurrentConnections"
-                chartTitle={'Current Connections'}
+                chartTitle={'current_connections'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
               />
               <ChartTemplate
                 apiUrl="/api/monitor/getActiveConnections"
-                chartTitle={'Active Connections'}
+                chartTitle={'active_connections'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
@@ -119,14 +142,14 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
             <>
               <ChartTemplate
                 apiUrl="/api/monitor/getCurrentConnections"
-                chartTitle={'Current Connections'}
+                chartTitle={'current_connections'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
               />
               <ChartTemplate
                 apiUrl="/api/monitor/getAbortedConnections"
-                chartTitle={'Aborted Connections'}
+                chartTitle={'aborted_connections'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
@@ -137,7 +160,7 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
           {dbType === DBTypeEnum.mongodb && (
             <ChartTemplate
               apiUrl="/api/monitor/getCurrentConnections"
-              chartTitle={'Current Connections'}
+              chartTitle={'current_connections'}
               dbName={dbName}
               dbType={dbType}
               db={db}
@@ -148,7 +171,7 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
             <>
               <ChartTemplate
                 apiUrl="/api/monitor/getRedisPerDB"
-                chartTitle={'Items per DB'}
+                chartTitle={'items_per_db'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
@@ -158,26 +181,26 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
         </Box>
       )}
       {activeId === MonitorType.performance && (
-        <Box mt={'16px'} overflowY={'scroll'} flex={1}>
+        <Box overflowY={'scroll'} flex={1}>
           {dbType === DBTypeEnum.postgresql && (
             <>
               <ChartTemplate
                 apiUrl="/api/monitor/getTransactions"
-                chartTitle={'Commits Per Second'}
+                chartTitle={'commits_per_second'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
               />
               <ChartTemplate
                 apiUrl="/api/monitor/getRollback"
-                chartTitle={'Rollbacks Per Second'}
+                chartTitle={'rollbacks_per_second'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
               />
               <ChartTemplate
                 apiUrl="/api/monitor/getDurationTransaction"
-                chartTitle={'Duration of Transaction'}
+                chartTitle={'duration_of_transaction'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
@@ -185,7 +208,7 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
               />
               <ChartTemplate
                 apiUrl="/api/monitor/getBlockReadTime"
-                chartTitle={'Block Read Time'}
+                chartTitle={'block_read_time'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
@@ -194,7 +217,7 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
 
               <ChartTemplate
                 apiUrl="/api/monitor/getBlockWriteTime"
-                chartTitle={'Block Write Time'}
+                chartTitle={'block_write_time'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
@@ -206,21 +229,21 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
             <>
               <ChartTemplate
                 apiUrl="/api/monitor/getTransactions"
-                chartTitle={'Commits Per Second'}
+                chartTitle={'commits_per_second'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
               />
               <ChartTemplate
                 apiUrl="/api/monitor/getMysqlTableLocks"
-                chartTitle={'Table Locks'}
+                chartTitle={'table_locks'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
               />
               <ChartTemplate
                 apiUrl="/api/monitor/getMysqlSlowQueries"
-                chartTitle={'Slow Queries'}
+                chartTitle={'slow_queries'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
@@ -232,7 +255,7 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
             <>
               <ChartTemplate
                 apiUrl="/api/monitor/getMongdbPerformance"
-                chartTitle={'Document Operations'}
+                chartTitle={'document_operations'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
@@ -240,7 +263,7 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
               />
               <ChartTemplate
                 apiUrl="/api/monitor/getMongdbPerformance"
-                chartTitle={'Query Operations'}
+                chartTitle={'query_operations'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
@@ -248,7 +271,7 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
               />
               <ChartTemplate
                 apiUrl="/api/monitor/getMongdbPerformance"
-                chartTitle={'Page Faults'}
+                chartTitle={'page_faults'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
@@ -261,7 +284,7 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
             <>
               <ChartTemplate
                 apiUrl="/api/monitor/getRedisPerformance"
-                chartTitle={'Command Latency'}
+                chartTitle={'command_latency'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
@@ -270,7 +293,7 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
               />
               <ChartTemplate
                 apiUrl="/api/monitor/getRedisPerformance"
-                chartTitle={'Key evictions'}
+                chartTitle={'key_evictions'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}
@@ -278,7 +301,7 @@ const Monitor = ({ db, dbName, dbType }: { dbName: string; dbType: string; db?: 
               />
               <ChartTemplate
                 apiUrl="/api/monitor/getRedisPerformance"
-                chartTitle={'Hits Ratio'}
+                chartTitle={'hits_ratio'}
                 dbName={dbName}
                 dbType={dbType}
                 db={db}

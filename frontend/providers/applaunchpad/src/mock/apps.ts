@@ -1,4 +1,4 @@
-import { AppListItemType, AppDetailType, PodDetailType } from '@/types/app';
+import { AppListItemType, AppDetailType, PodDetailType, AppEditSyncedFields } from '@/types/app';
 import { appStatusMap, podStatusMap } from '@/constants/app';
 import { customAlphabet } from 'nanoid';
 const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz', 12);
@@ -25,7 +25,13 @@ export const MOCK_APPS: AppListItemType[] = [
     isPause: false,
     maxReplicas: 1,
     minReplicas: 1,
-    storeAmount: 0
+    storeAmount: 0,
+    labels: {},
+    source: {
+      hasSource: false,
+      sourceName: '',
+      sourceType: 'app_store'
+    }
   },
   {
     id: 'string2',
@@ -48,7 +54,13 @@ export const MOCK_APPS: AppListItemType[] = [
     activeReplicas: 1,
     maxReplicas: 1,
     minReplicas: 1,
-    storeAmount: 0
+    storeAmount: 0,
+    labels: {},
+    source: {
+      hasSource: false,
+      sourceName: '',
+      sourceType: 'app_store'
+    }
   },
   {
     id: 'string3',
@@ -71,7 +83,13 @@ export const MOCK_APPS: AppListItemType[] = [
     activeReplicas: 1,
     maxReplicas: 1,
     minReplicas: 1,
-    storeAmount: 0
+    storeAmount: 0,
+    labels: {},
+    source: {
+      hasSource: false,
+      sourceName: '',
+      sourceType: 'app_store'
+    }
   }
 ];
 export const MOCK_NAMESPACE = 'ns-34dccadb-8e62-4205-8c1b-fc2dc146cd68';
@@ -193,7 +211,8 @@ export const MOCK_PODS: PodDetailType[] = [
       yData: new Array(30).fill('0')
     },
     cpu: 0,
-    memory: 0
+    memory: 0,
+    containerStatus: podStatusMap.running
   },
   {
     podName: '2',
@@ -213,181 +232,15 @@ export const MOCK_PODS: PodDetailType[] = [
       yData: new Array(30).fill('0')
     },
     cpu: 0,
-    memory: 0
-  },
-  {
-    podName: '3',
-    nodeName: 'dafda-fasd-fas',
-    ip: '311.241.41.41',
-    restarts: 10,
-    age: '22',
-    status: podStatusMap.running,
-    usedCpu: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    usedMemory: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    cpu: 0,
-    memory: 0
-  },
-
-  {
-    podName: '4',
-    nodeName: 'dafda-fasd-fas',
-    ip: '311.241.41.41',
-    restarts: 10,
-    age: '22',
-    status: podStatusMap.running,
-    usedCpu: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    usedMemory: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    cpu: 0,
-    memory: 0
-  },
-
-  {
-    podName: '5',
-
-    nodeName: 'dafda-fasd-fas',
-    ip: '311.241.41.41',
-    restarts: 10,
-    age: '22',
-    status: podStatusMap.running,
-    usedCpu: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    usedMemory: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    cpu: 0,
-    memory: 0
-  },
-  {
-    podName: '6',
-
-    nodeName: 'dafda-fasd-fas',
-    ip: '311.241.41.41',
-    restarts: 10,
-    age: '22',
-    status: podStatusMap.running,
-    usedCpu: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    usedMemory: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    cpu: 0,
-    memory: 0
-  },
-  {
-    podName: '7',
-
-    nodeName: 'dafda-fasd-fas',
-    ip: '311.241.41.41',
-    restarts: 10,
-    age: '22',
-    status: podStatusMap.running,
-    usedCpu: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    usedMemory: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    cpu: 0,
-    memory: 0
-  },
-  {
-    podName: '8',
-
-    nodeName: 'dafda-fasd-fas',
-    ip: '311.241.41.41',
-    restarts: 10,
-    age: '22',
-    status: podStatusMap.running,
-    usedCpu: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    usedMemory: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    cpu: 0,
-    memory: 0
-  },
-
-  {
-    podName: '9',
-
-    nodeName: 'dafda-fasd-fas',
-    ip: '311.241.41.41',
-    restarts: 10,
-    age: '22',
-    status: podStatusMap.running,
-    usedCpu: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    usedMemory: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    cpu: 0,
-    memory: 0
-  },
-
-  {
-    podName: 'dafsdd2sgsd6gsdg',
-
-    nodeName: 'dafda-fasd-fas',
-    ip: '311.241.41.41',
-    restarts: 10,
-    age: '22',
-    status: podStatusMap.running,
-    usedCpu: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    usedMemory: {
-      name: '',
-      xData: new Array(30).fill(0),
-      yData: new Array(30).fill('0')
-    },
-    cpu: 0,
-    memory: 0
+    memory: 0,
+    containerStatus: podStatusMap.running
   }
 ];
 
 export const MOCK_APP_DETAIL: AppDetailType = {
+  kind: 'deployment',
+  volumes: [],
+  volumeMounts: [],
   crYamlList: [],
   id: '4bd50c41-149e-4da5-89d5-0308b9dd75c6',
   createTime: '2022/1/22',
@@ -418,7 +271,8 @@ export const MOCK_APP_DETAIL: AppDetailType = {
       protocol: 'HTTP',
       openPublicDomain: false,
       publicDomain: '',
-      customDomain: ''
+      customDomain: '',
+      domain: ''
     }
   ],
   envs: [],
@@ -436,5 +290,34 @@ export const MOCK_APP_DETAIL: AppDetailType = {
     password: '',
     serverAddress: ''
   },
-  storeList: []
+  storeList: [],
+  labels: {},
+  source: {
+    hasSource: false,
+    sourceName: '',
+    sourceType: 'app_store'
+  }
+};
+
+export const MockAppEditSyncedFields: AppEditSyncedFields = {
+  imageName: 'nginx',
+  appName: 'hello-world-test',
+  replicas: 1,
+  cpu: 4000,
+  memory: 64,
+  networks: [
+    {
+      networkName: 'network-atyjahgvtzqm',
+      portName: 'vsjrpjzjptex',
+      port: 80,
+      protocol: 'HTTP',
+      openPublicDomain: true,
+      publicDomain: 'tkywzlpibxdl',
+      customDomain: '',
+      domain: 'gzg.sealos.run'
+    }
+  ],
+  cmdParam: 'sleep 10',
+  runCMD: '/bin/bash -c',
+  labels: {}
 };

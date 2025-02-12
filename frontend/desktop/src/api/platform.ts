@@ -1,36 +1,59 @@
 import request from '@/services/request';
-import { ApiResp, SystemConfigType, SystemEnv } from '@/types';
-import { AccountCRD } from '@/types/user';
+import {
+  ApiResp,
+  LayoutConfigType,
+  CloudConfigType,
+  AuthClientConfigType,
+  AppClientConfigType,
+  CommonClientConfigType,
+  TNotification
+} from '@/types';
+import { UserTask } from '@/types/task';
 
 // handle baidu
-export const uploadConvertData = (newType: number[], url?: string) => {
-  const defaultUrl = 'https://sealos.run/';
-  const main_url = url || defaultUrl;
-  const bd_vid = sessionStorage.getItem('bd_vid');
-  if (!bd_vid) {
+export const uploadConvertData = ({ newType, bdVid }: { newType: number[]; bdVid?: string }) => {
+  const baseurl = `http://${process.env.HOSTNAME || 'localhost'}:${process.env.PORT || 3000}`;
+  const defaultUrl = 'https://ads.sealos.run';
+  if (!bdVid) {
     return Promise.reject('upload convert data params error');
   }
-  return request.post('/api/platform/uploadData', {
+  return request.post(`${baseurl}/api/platform/uploadData`, {
     newType,
-    bd_vid,
-    main_url
+    bd_vid: bdVid,
+    main_url: defaultUrl
   });
 };
 
-export const updateDesktopGuide = () => {
-  return request.post('/api/account/updateGuide');
+export const getUserTasks = () => {
+  return request.get<UserTask[]>('/api/account/getTasks');
 };
 
-export const getUserAccount = () => {
-  return request.get<AccountCRD>('/api/account/getAccount');
+export const checkUserTask = () => {
+  return request.get('/api/account/checkTask');
 };
 
-export const getSystemEnv = () => {
-  return request.get<SystemEnv>('/api/platform/getEnv');
+export const updateTask = (taskId: string) => {
+  return request.post('/api/account/updateTask', { taskId });
 };
 
-export const getSystemConfig = () => {
-  return request.get<SystemConfigType>('/api/system/getSystemConfig');
+export const getAppConfig = () => {
+  return request.get<AppClientConfigType>('/api/platform/getAppConfig');
+};
+
+export const getCloudConfig = () => {
+  return request.get<CloudConfigType>('/api/platform/getCloudConfig');
+};
+
+export const getCommonConfig = () => {
+  return request.get<CommonClientConfigType>('/api/platform/getCommonConfig');
+};
+
+export const getLayoutConfig = () => {
+  return request.get<LayoutConfigType>('/api/platform/getLayoutConfig');
+};
+
+export const getAuthConfig = () => {
+  return request.get<AuthClientConfigType>('/api/platform/getAuthConfig');
 };
 
 export const getPriceBonus = () => {
@@ -42,4 +65,45 @@ export const getPriceBonus = () => {
       activities: string;
     }>
   >('/api/price/bonus');
+};
+
+export const getWechatQR = () =>
+  request.get<any, ApiResp<{ code: string; codeUrl: string }>>(
+    '/api/auth/publicWechat/getWechatQR'
+  );
+
+export const getWechatResult = (payload: { code: string }) =>
+  request.get<any, ApiResp<{ token: string }>>('/api/auth/publicWechat/getWechatResult', {
+    params: payload
+  });
+
+export const getGlobalNotification = () => {
+  return request.get<any, ApiResp<TNotification>>('/api/notification/global');
+};
+
+export const listNotification = () =>
+  request.get<any, ApiResp<TNotification[]>>('/api/notification/listNotification');
+
+export const getResource = () => {
+  return request.get<
+    any,
+    ApiResp<{
+      totalCpu: string;
+      totalMemory: string;
+      totalStorage: string;
+      runningPodCount: string;
+      totalGpuCount: string;
+      totalPodCount: string;
+    }>
+  >('/api/desktop/getResource');
+};
+
+export const getUserBilling = () => {
+  return request.post<
+    any,
+    ApiResp<{
+      prevMonthTime: number;
+      prevDayTime: number;
+    }>
+  >('/api/desktop/getBilling');
 };

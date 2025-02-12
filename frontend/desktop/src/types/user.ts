@@ -1,5 +1,6 @@
+import { _ACCOUNT_STATUS, RESPONSE_MESSAGE } from './response/utils';
 import { InvitedStatus, UserRole } from './team';
-
+import { ProviderType } from 'prisma/global/generated/client';
 export type TgithubToken = {
   access_token: string;
   expires_in: number;
@@ -31,7 +32,7 @@ export type TWechatUser = {
 };
 export type TgithubUser = {
   login: string;
-  id: number;
+  id?: number;
   node_id: string;
   avatar_url: string;
   gravatar_id: string;
@@ -63,10 +64,32 @@ export type TgithubUser = {
   created_at: string;
   updated_at: string;
 };
+export type TgoogleUser = {
+  iss: string;
+  azp: string;
+  aud: string;
+  sub: string;
+  at_hash: string;
+  name: string;
+  picture: string;
+  given_name: string;
+  family_name: string;
+  locale: string;
+  iat: number;
+  exp: number;
+};
 // if default, uid
-export const PROVIDERS = ['github', 'wechat', 'phone', 'uid', 'password_user', 'google'] as const;
-export type Provider = (typeof PROVIDERS)[number];
-export type OauthProvider = Exclude<Provider, 'uid' | 'password_user' | 'phone'>;
+export const PROVIDERS = [
+  'GITHUB',
+  'WECHAT',
+  'PHONE',
+  'PASSWORD',
+  'GOOGLE',
+  'WECHAT_OPEN',
+  'OAUTH2',
+  'EMAIL'
+] as const;
+export type OauthProvider = Exclude<ProviderType, 'PASSWORD' | 'PHONE' | 'EMAIL'>;
 export type TUserExist = { user: string; exist: boolean };
 
 export type K8s_user = {
@@ -78,6 +101,7 @@ export type User = {
   name: string;
   github?: string;
   wechat?: string;
+  wechat_open?: string;
   google?: string;
   phone?: string;
   k8s_users?: K8s_user[];
@@ -87,8 +111,9 @@ export type User = {
 };
 export type UserDto = {
   uid: string;
+  crUid: string;
   avatarUrl: string;
-  name: string;
+  nickname: string;
   k8s_username: string;
   createdTime: string;
 };
@@ -113,4 +138,29 @@ export type AccountCRD = {
     encryptBalance: string;
     encryptDeductionBalance: string;
   };
+};
+
+export type OAuth2Type = {
+  access_token: string;
+  token_type: string;
+  expires_in: 3599;
+  refresh_token: string;
+  scope: string;
+};
+export type OAuth2UserInfoType = {
+  sub: string;
+  birthdate: string | null;
+  family_name: string | null;
+  gender: 'M' | 'F' | 'U';
+  given_name: string | null;
+  locale: string | null;
+  middle_name: string | null;
+  name: string | null;
+  nickname: string | null;
+  picture: string;
+  preferred_username: string | null;
+  profile: string | null;
+  updated_at: string;
+  website: string | null;
+  zoneinfo: string | null;
 };

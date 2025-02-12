@@ -14,11 +14,15 @@ type EnvState = {
 const useEnvStore = create<EnvState>()(
   immer((set, get) => ({
     SystemEnv: {
+      desktopDomain: '',
       domain: '',
       env_storage_className: '',
       migrate_file_image: '',
       minio_url: '',
-      BACKUP_ENABLED: false
+      BACKUP_ENABLED: false,
+      SHOW_DOCUMENT: true,
+      CurrencySymbol: 'shellCoin',
+      STORAGE_MAX_SIZE: 300
     },
     initSystemEnv: async () => {
       const data = await getAppEnv();

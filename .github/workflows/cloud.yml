@@ -58,15 +58,17 @@ env:
 jobs:
   save-sealos:
     uses: ./.github/workflows/import-save-sealos.yml
+    with:
+      artifact_name: sealos-cloud
 
   build-cluster-image:
     if: ${{ (github.event_name == 'release') ||(github.event_name == 'push')  || (inputs.push_image == true) }}
     needs:
       - save-sealos
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Expose git commit data
@@ -85,9 +87,9 @@ jobs:
           bash ./scripts/resolve-tag-image.sh "${{ inputs.push_image }}" "${{ steps.check_tag.outputs.isTag }}"  "${{ inputs.push_image_tag }}"     
           echo repo=ghcr.io/${{ github.repository_owner }}/sealos-cloud >> $GITHUB_OUTPUT
       - name: Download sealos
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: sealos
+          name: sealos-cloud
           path: /tmp/
       - name: Verify sealos
         run: |
@@ -107,14 +109,11 @@ jobs:
         run: |
           [ -z "${{ inputs.build_from }}" ] && BuildFromTag="latest" || BuildFromTag="${{ inputs.build_from }}"; echo "BuildFromTag=${BuildFromTag}" 
           sed -i "s#labring#${{ github.repository_owner }}#g" init.sh
-          sed -i "s#labring#${{ github.repository_owner }}#g" etc/sealos/desktop-config.yaml
           sed -i "s#latest#${BuildFromTag}#g" init.sh
-          sed -i "s#latest#${BuildFromTag}#g" etc/sealos/desktop-config.yaml
           
           sudo bash init.sh amd64 
           sudo sealos build -t ${{ steps.prepare.outputs.repo }}:${{ steps.prepare.outputs.tag_name }}-amd64 --platform linux/amd64 -f Kubefile
           sudo sealos build -t ${{ steps.prepare.outputs.repo }}:latest-amd64 --platform linux/amd64 -f Kubefile
-          
           
           # delete old registry cache
           sudo rm -rf registry
